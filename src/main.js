@@ -11,7 +11,8 @@ import {
 } from "./data.js";
 
 const content = document.querySelector("#content");
-const freshness = document.querySelector("#freshness");
+const freshness = document.querySelector("#freshness-controls");
+const refreshStatus = document.querySelector("#refresh-status");
 const filters = { search: "", date: "", phase: "", status: "" };
 const CACHE_KEY = "ciu2026-data-v1";
 let data = null;
@@ -73,7 +74,9 @@ function renderFreshness() {
     <details class="refresh-info" ${restoreInfo ? "open" : ""}><summary>Come funziona Aggiorna</summary><p>Aggiorna legge l’ultima copia pubblicata. Il foglio viene importato separatamente; gli aggiornamenti possono arrivare in ritardo.</p></details>
     ${error ? `<p role="alert" class="error">Aggiornamento non riuscito. ${data ? `Dati conservati (${ageText()}).` : "Riprova con Aggiorna."} <span class="muted">${escape(error)}</span></p>` : ""}</div>
     <button id="refresh" ${busy ? "disabled" : ""}>${busy ? "Aggiornamento…" : "Aggiorna"}</button>`;
-  document.querySelector("#refresh").addEventListener("click", refresh);
+  document.querySelector("#refresh").addEventListener("click", () =>
+    refresh({ manual: true }),
+  );
   if (restoreFocus)
     document.querySelector("#refresh").focus({ preventScroll: true });
 }
@@ -326,9 +329,13 @@ function locationHash() {
   }
 }
 
-async function refresh() {
+async function refresh({ manual = false } = {}) {
   if (busy) return;
   busy = true;
+  if (manual) {
+    refreshStatus.hidden = false;
+    refreshStatus.textContent = "Verifica della copia pubblicata…";
+  }
   const focusedId = document.activeElement?.id;
   const selection =
     document.activeElement instanceof HTMLInputElement
@@ -345,6 +352,15 @@ async function refresh() {
   data = result.data;
   error = result.error;
   busy = false;
+  if (manual) {
+    const checkedAt = new Intl.DateTimeFormat("it-IT", {
+      timeZone: "Europe/Rome",
+      timeStyle: "medium",
+    }).format(new Date());
+    refreshStatus.textContent = error
+      ? `Verifica non riuscita alle ${checkedAt}. ${data ? "Ultimi dati validi conservati." : "Riprova con Aggiorna."}`
+      : `Verificato alle ${checkedAt}: ${changed ? "nuova copia caricata." : "nessuna nuova copia pubblicata."}`;
+  }
   if (changed) {
     try {
       localStorage.setItem(CACHE_KEY, JSON.stringify(data));

@@ -177,17 +177,25 @@ nav a[aria-current="page"]:hover {
   padding: 0 28px;
 }
 .freshness {
-  display: flex;
-  align-items: center;
-  gap: 12px;
   border-left: 1px solid var(--line);
   padding-left: 20px;
   font-size: 0.72rem;
+}
+.freshness-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 .freshness p {
   font-size: 0.72rem;
   margin: 0;
   line-height: 1.35;
+}
+.freshness .refresh-status:not([hidden]) {
+  margin-top: 6px;
+  max-width: 325px;
+  color: var(--deep);
+  font-weight: 600;
 }
 .freshness-meta {
   width: 225px;
@@ -784,10 +792,12 @@ footer a {
     padding: 0 18px;
   }
   .freshness {
-    gap: 8px;
     padding: 10px 0 0;
     margin-top: 10px;
     border-top: 1px solid var(--line);
+  }
+  .freshness-controls {
+    gap: 8px;
     justify-content: space-between;
   }
   .freshness-meta {

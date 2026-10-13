@@ -46,6 +46,8 @@ Run these commands **from this project folder**. Local validation used Node 26.0
 
 ## Refresh and deployment
 
+Each manual “Aggiorna” check reports its completion time and whether a newer published copy was loaded. The download and spreadsheet timestamps describe the data itself, so they stay unchanged when no new copy is available. An unsuccessful check reports failure and retains the last valid data.
+
 Vite builds a static site at `/ultimateciu2026/`. Python/openpyxl is the single source adapter; `src/data.schema.json` is the shared output schema used by Python/jsonschema and browser/Ajv validation. There is no server framework or account system.
 
 “Aggiorna” re-fetches the served JSON with caching disabled. It preserves the current team and filters, retains the last validated data on network/schema failure, and shows both download age and the source-reported update timestamp. The browser also polls every 90 seconds while visible and refreshes when the tab becomes visible. Validated data is cached in localStorage when available, so a previously loaded browser can recover its copy after a failed load. A first visit without working JSON has a retry state, not an empty competition. Browser refresh cannot execute the importer or fetch newer workbook data by itself.
