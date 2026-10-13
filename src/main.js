@@ -120,7 +120,7 @@ function schedule() {
   const next = filterMatches(data, {}).find(
     (match) => matchState(match) === "scheduled",
   );
-  content.innerHTML = `<div class="page-title"><div><p class="eyebrow">Il campionato, partita per partita</p><h1>Partite</h1></div>${next ? `<button class="text-button" id="next-date">Prossima data: ${escape(formatDate(next.date, true))} ↓</button>` : ""}</div>
+  content.innerHTML = `<div class="page-title schedule-title"><div><p class="eyebrow">Il campionato, partita per partita</p><h1>Partite</h1></div>${next ? `<button class="text-button" id="next-date">Prossima data: ${escape(formatDate(next.date, true))} ↓</button>` : ""}</div>
     <form class="filters" aria-label="Filtra partite" onsubmit="return false">
       <label class="search-label">Cerca squadra<input id="search" type="search" placeholder="Nome squadra o slot…" value="${escape(filters.search)}" /></label>
       <label>Data<select id="date">${options({ "": "Tutte le date", ...Object.fromEntries(dates.map((date) => [date, formatDate(date, true)])) }, filters.date)}</select></label>

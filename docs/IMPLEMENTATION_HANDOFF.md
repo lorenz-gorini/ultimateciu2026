@@ -274,3 +274,11 @@ A final documentation-only checkpoint records these deployment/access facts in `
 **Remaining limits:** source roster/player-match mapping, initial zero standings and empty real scores/SOTG remain as documented above. Hosted execution is now verified; no publication blocker remains. The local preview continues to work.
 
 **Next owner/action:** Lorenzo can open/share the live website; no further setup is required. Revisit/disable the scheduled refresh after the championship. Future unrelated GitHub operations require their own authorization; the persistent CLI sign-in does not expand this project's approved scope.
+
+## Visual refinement — 13 October 2026
+
+Lorenzo requested a less minimal version with small drawings while keeping the schedule compact. Starting from `main` at `0e761c5` with a clean worktree, the site now has a small original vector disc mark in the header and a disc-in-flight illustration beside the Partite heading. A thin accent on the filters, date markers and gentle card feedback carry that visual language through the page. No competition facts, importer behavior, workflow, source spreadsheet, homepage or DNS settings changed. The SVG is authored in this project and contains no external asset or credential.
+
+Validation: `git diff --check`, all ten frontend tests and a production build using live JSON passed. The local browser preview showed the schedule at desktop, 390px and 320px widths; at 320px the document width equalled the viewport width, and browser error logs were empty. The date counts, filters and data remained visible. The previous Python importer tests remain applicable because importer code and its fixture were not changed. Mobile checks used browser viewport emulation, not physical devices. The local preview is available at the README's URL.
+
+Owned paths for this change: `index.html`, `src/main.js`, `src/style.css`, `src/assets/disc-flight.svg` and this handoff. The next step is a scoped checkpoint on the project repository and verification of its Pages deployment; no other GitHub repository is in scope.
