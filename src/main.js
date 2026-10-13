@@ -6,20 +6,56 @@ import {
   formatDate,
   matchState,
   normalizeSearch,
+  publicationIsStale,
   requestData,
   validateData,
 } from "./data.js";
+import {
+  normalizePreferences,
+  readPreferences,
+  savePreferences,
+  selectTeam,
+  shortcutTeamIds,
+  toggleTeam,
+} from "./preferences.js";
 
 const content = document.querySelector("#content");
 const freshness = document.querySelector("#freshness-controls");
 const refreshStatus = document.querySelector("#refresh-status");
-const filters = { search: "", date: "", phase: "", status: "" };
+const filters = { search: "", teamIds: [], date: "", phase: "", status: "" };
 const CACHE_KEY = "ciu2026-data-v1";
 let data = null;
 let error = null;
 let busy = false;
 let teamQuery = "";
 let lastRoute = "";
+let preferences = null;
+let storageAvailable = true;
+let chooserOpen = false;
+
+function preferenceStorage() {
+  try {
+    return window.localStorage;
+  } catch {
+    return undefined;
+  }
+}
+
+function reconcilePreferences() {
+  if (!preferences) {
+    const storage = preferenceStorage();
+    storageAvailable = Boolean(storage);
+    preferences = readPreferences(storage, data.teams);
+  } else {
+    preferences = normalizePreferences(preferences, data.teams);
+  }
+  filters.teamIds = preferences.selected;
+}
+
+function persistPreferences() {
+  filters.teamIds = preferences.selected;
+  storageAvailable = savePreferences(preferenceStorage(), preferences);
+}
 
 const escape = (value) =>
   String(value ?? "").replace(
@@ -67,6 +103,7 @@ function ageText() {
 }
 
 function renderFreshness() {
+  document.querySelector("#stale-warning").hidden = !publicationIsStale(data);
   const restoreFocus = document.activeElement?.id === "refresh";
   const restoreInfo = freshness.querySelector(".refresh-info")?.open;
   freshness.innerHTML = `<div class="freshness-meta"><p class="download">${data ? `Download: <strong>${escape(timestamp(data.fetchedAt))}</strong> <span class="age">· ${ageText()}</span>` : "Nessun download disponibile"}</p>
@@ -121,43 +158,141 @@ function schedule() {
   const dates = [
     ...new Set(data.matches.map((match) => match.date).filter(Boolean)),
   ].sort();
-  const next = filterMatches(data, {}).find(
-    (match) => matchState(match) === "scheduled",
-  );
-  content.innerHTML = `<div class="page-title schedule-title"><div><p class="eyebrow">Il campionato, partita per partita</p><h1>Partite</h1></div>${next ? `<button class="text-button" id="next-date">Prossima data: ${escape(formatDate(next.date, true))} ↓</button>` : ""}</div>
+  content.innerHTML = `<h1 class="visually-hidden">Partite</h1>
     <form class="filters" aria-label="Filtra partite" onsubmit="return false">
-      <label class="search-label">Cerca squadra<input id="search" type="search" placeholder="Nome squadra o slot…" value="${escape(filters.search)}" /></label>
-      <label>Data<select id="date">${options({ "": "Tutte le date", ...Object.fromEntries(dates.map((date) => [date, formatDate(date, true)])) }, filters.date)}</select></label>
-      <label>Fase<select id="phase">${options({ "": "Tutte le fasi", ...PHASES }, filters.phase)}</select></label>
-      <label>Stato<select id="status">${options({ "": "Tutti gli stati", ...STATES }, filters.status)}</select></label>
+      <div class="team-picker" id="team-picker">
+        <div class="team-search-row">
+          <div class="team-search-field"><label class="visually-hidden" for="search">Squadre</label>
+            <div class="search-underline"><input id="search" type="search" autocomplete="off" placeholder="Cerca squadre o slot…" aria-describedby="team-search-help" aria-controls="team-options" value="${escape(filters.search)}" /><button type="button" id="toggle-teams" class="text-button" aria-label="Mostra o nascondi squadre" aria-expanded="${chooserOpen}" aria-controls="team-options">▾</button></div>
+          </div>
+          <div id="team-shortcuts" class="team-shortcuts" role="group" aria-label="Squadre recenti e selezionate" hidden></div>
+        </div>
+        <p id="team-search-help" class="visually-hidden"></p>
+        <p id="preference-note" class="filter-help" hidden></p>
+        <fieldset id="team-options" class="team-options" ${chooserOpen ? "" : "hidden"}><legend>Seleziona una o più squadre</legend>${data.teams.map((entry) => `<label class="team-option"><input type="checkbox" id="choose-${escape(entry.id)}" value="${escape(entry.id)}" /><span>${escape(entry.name)}</span></label>`).join("")}<p id="no-team-options" class="filter-help" hidden>Nessuna squadra trovata. Gli slot si cercano senza squadre selezionate.</p><div class="picker-footer"><button type="button" id="clear-recents" class="text-button">Cancella recenti</button></div></fieldset>
+      </div>
+      <div class="secondary-filters">
+      <label><span class="visually-hidden">Data</span><select id="date">${options({ "": "Tutte le date", ...Object.fromEntries(dates.map((date) => [date, formatDate(date, true)])) }, filters.date)}</select></label>
+      <label><span class="visually-hidden">Fase</span><select id="phase">${options({ "": "Tutte le fasi", ...PHASES }, filters.phase)}</select></label>
+      <label><span class="visually-hidden">Stato</span><select id="status">${options({ "": "Tutti gli stati", ...STATES }, filters.status)}</select></label>
       <button type="button" id="reset" class="secondary">Azzera filtri</button>
+      </div>
     </form><p id="match-count" class="list-count" aria-live="polite"></p><div id="match-list"></div>`;
-  for (const key of Object.keys(filters)) {
+  for (const key of ["date", "phase", "status"]) {
     document
       .querySelector(`#${key}`)
-      .addEventListener(key === "search" ? "input" : "change", (event) => {
+      .addEventListener("change", (event) => {
         filters[key] = event.target.value;
         updateMatches();
       });
   }
-  document.querySelector("#reset").addEventListener("click", () => {
-    for (const key of Object.keys(filters)) {
-      filters[key] = "";
-      document.querySelector(`#${key}`).value = "";
-    }
+  document.querySelector("#reset").addEventListener("click", resetFilters);
+  const search = document.querySelector("#search");
+  search.addEventListener("focus", () => setChooserOpen(true));
+  search.addEventListener("click", () => setChooserOpen(true));
+  search.addEventListener("input", () => {
+    filters.search = search.value;
+    setChooserOpen(true);
+    updateTeamOptions();
     updateMatches();
   });
-  document.querySelector("#next-date")?.addEventListener("click", () => {
-    for (const key of Object.keys(filters)) {
-      filters[key] = "";
-      document.querySelector(`#${key}`).value = "";
+  document.querySelector("#toggle-teams").addEventListener("click", () => setChooserOpen(!chooserOpen));
+  document.querySelector("#team-picker").addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      search.focus({ preventScroll: true });
+      setChooserOpen(false);
+    } else if (event.key === "ArrowDown" && event.target === search) {
+      event.preventDefault();
+      setChooserOpen(true);
+      document.querySelector(".team-option:not([hidden]) input")?.focus();
     }
-    updateMatches();
-    document
-      .querySelector(`#date-${next.date}`)
-      ?.scrollIntoView({ block: "start" });
   });
+  document.querySelector("#team-picker").addEventListener("focusout", (event) => {
+    if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) setChooserOpen(false);
+  });
+  document.querySelectorAll(".team-option input").forEach((checkbox) => {
+    checkbox.addEventListener("change", () => {
+      if (checkbox.checked) chooseTeam(checkbox.value);
+      else {
+        preferences.selected = preferences.selected.filter((id) => id !== checkbox.value);
+        selectionChanged();
+      }
+    });
+  });
+  document.querySelector("#clear-recents").addEventListener("click", () => {
+    preferences.recent = [];
+    persistPreferences();
+    updateTeamControls();
+    search.focus({ preventScroll: true });
+  });
+  updateTeamControls();
   updateMatches();
+}
+
+function setChooserOpen(open) {
+  chooserOpen = open;
+  document.querySelector("#team-options").hidden = !open;
+  document.querySelector("#toggle-teams").setAttribute("aria-expanded", String(open));
+}
+
+function updateTeamOptions() {
+  const query = normalizeSearch(filters.search);
+  let visible = 0;
+  document.querySelectorAll(".team-option input").forEach((checkbox) => {
+    checkbox.checked = preferences.selected.includes(checkbox.value);
+    const show = normalizeSearch(team(checkbox.value).name).includes(query);
+    checkbox.closest("label").hidden = !show;
+    if (show) visible++;
+  });
+  document.querySelector("#no-team-options").hidden = visible > 0;
+}
+
+function updateTeamControls() {
+  const selected = preferences.selected;
+  document.querySelector("#search").placeholder = selected.length ? "Aggiungi squadre…" : "Cerca squadre o slot…";
+  document.querySelector("#team-search-help").textContent = selected.length
+    ? "Le partite includono una qualsiasi delle squadre selezionate. Digita per aggiungerne altre."
+    : "Digita per cercare, oppure seleziona una o più squadre.";
+  const note = document.querySelector("#preference-note");
+  note.hidden = storageAvailable;
+  note.textContent = "Salvataggio sul browser non disponibile: preferenze valide solo durante questa visita.";
+  const shortcuts = document.querySelector("#team-shortcuts");
+  const ids = shortcutTeamIds(preferences);
+  shortcuts.hidden = !ids.length;
+  shortcuts.innerHTML = ids.map((id) => `<button type="button" class="team-shortcut" id="shortcut-${escape(id)}" data-team="${escape(id)}" aria-pressed="${selected.includes(id)}">${escape(team(id).name)}<span class="selection-mark" aria-hidden="true">${selected.includes(id) ? "✓" : "+"}</span></button>`).join("");
+  shortcuts.querySelectorAll("[data-team]").forEach((button) => button.addEventListener("click", () => {
+    preferences = toggleTeam(preferences, button.dataset.team);
+    filters.search = "";
+    document.querySelector("#search").value = "";
+    selectionChanged();
+    (document.getElementById(button.id) || document.querySelector("#search")).focus({ preventScroll: true });
+  }));
+  document.querySelector("#clear-recents").hidden = !preferences.recent.length;
+  updateTeamOptions();
+}
+
+function selectionChanged() {
+  persistPreferences();
+  updateTeamControls();
+  updateMatches();
+}
+
+function chooseTeam(id) {
+  preferences = selectTeam(preferences, id);
+  filters.search = "";
+  document.querySelector("#search").value = "";
+  selectionChanged();
+}
+
+function resetFilters() {
+  preferences.selected = [];
+  for (const key of ["search", "date", "phase", "status"]) {
+    filters[key] = "";
+    document.querySelector(`#${key}`).value = "";
+  }
+  setChooserOpen(false);
+  selectionChanged();
 }
 
 function updateMatches() {
@@ -305,6 +440,7 @@ function render({ navigation = false } = {}) {
     content.innerHTML = `<h1>Partite</h1>${empty("Dati non disponibili. Usa Aggiorna per riprovare.")}`;
     return;
   }
+  reconcilePreferences();
   if (route === "/") schedule();
   else if (route === "/teams") teamsPage();
   else if (route === "/pools") poolsPage();
@@ -331,16 +467,12 @@ function locationHash() {
 
 async function refresh({ manual = false } = {}) {
   if (busy) return;
+  const restoreRefreshFocus = document.activeElement?.id === "refresh";
   busy = true;
   if (manual) {
     refreshStatus.hidden = false;
     refreshStatus.textContent = "Verifica della copia pubblicata…";
   }
-  const focusedId = document.activeElement?.id;
-  const selection =
-    document.activeElement instanceof HTMLInputElement
-      ? document.activeElement.selectionStart
-      : null;
   renderFreshness();
   const result = await requestData(
     `${import.meta.env.BASE_URL}data.json`,
@@ -362,6 +494,12 @@ async function refresh({ manual = false } = {}) {
       : `Verificato alle ${checkedAt}: ${changed ? "nuova copia caricata." : "nessuna nuova copia pubblicata."}`;
   }
   if (changed) {
+    // Capture focus after the request: the user may have typed or navigated meanwhile.
+    const active = document.activeElement;
+    const focusedId = active?.id;
+    const selection = active instanceof HTMLInputElement && active.selectionStart !== null
+      ? [active.selectionStart, active.selectionEnd, active.selectionDirection]
+      : null;
     try {
       localStorage.setItem(CACHE_KEY, JSON.stringify(data));
     } catch {
@@ -372,11 +510,11 @@ async function refresh({ manual = false } = {}) {
     if (focus) {
       focus.focus({ preventScroll: true });
       if (selection !== null && focus instanceof HTMLInputElement)
-        focus.setSelectionRange(selection, selection);
+        focus.setSelectionRange(...selection);
     }
   } else if (!data) render();
   renderFreshness();
-  if (focusedId === "refresh")
+  if (restoreRefreshFocus && document.activeElement === document.body)
     document.querySelector("#refresh").focus({ preventScroll: true });
 }
 

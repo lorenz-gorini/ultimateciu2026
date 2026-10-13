@@ -177,6 +177,7 @@ export function formatDate(iso, short = false) {
 
 export function filterMatches(data, filters, now = new Date()) {
   const names = new Map(data.teams.map((team) => [team.id, team.name]));
+  const selected = new Set(filters.teamIds || []);
   const query = normalizeSearch(filters.search || "");
   return data.matches
     .filter(
@@ -185,7 +186,9 @@ export function filterMatches(data, filters, now = new Date()) {
         (!filters.phase || match.phase === filters.phase) &&
         (!filters.status || matchState(match, now) === filters.status) &&
         [match.a, match.b].some((side) =>
-          normalizeSearch(names.get(side.teamId) || side.slot).includes(query),
+          selected.size
+            ? selected.has(side.teamId)
+            : normalizeSearch(names.get(side.teamId) || side.slot).includes(query),
         ),
     )
     .sort((a, b) =>
@@ -195,6 +198,14 @@ export function filterMatches(data, filters, now = new Date()) {
         { numeric: true },
       ),
     );
+}
+
+/** Download age on an actual Rome match day; sourceReportedAt is not fetch age. */
+export function publicationIsStale(data, now = new Date()) {
+  const today = romeNow(now).date;
+  return Boolean(data &&
+    now.getTime() - Date.parse(data.fetchedAt) > 60 * 60 * 1000 &&
+    data.matches.some((match) => match.date === today));
 }
 
 /** On failure the caller's last validated object remains available unchanged. */

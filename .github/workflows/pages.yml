@@ -5,8 +5,9 @@ on:
     branches: [main]
   workflow_dispatch:
   schedule:
-    # UTC, best effort. Disable/revisit after the competition.
-    - cron: "7,22,37,52 * * * *"
+    # UTC, best effort: weekends every 15 minutes; weekdays hourly.
+    - cron: "7,22,37,52 * * * 0,6"
+    - cron: "7 * * * 1-5"
 
 permissions:
   contents: read
@@ -16,9 +17,25 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build:
-    # Intentionally disabled until the separate review/publication authorization.
+  policy:
     if: vars.PAGES_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    outputs:
+      refresh: ${{ steps.decision.outputs.refresh }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Decide whether season refresh is due
+        id: decision
+        env:
+          PAGES_EVENT: ${{ github.event_name }}
+        run: python3 scripts/refresh_policy.py --event "$PAGES_EVENT" --github-output "$GITHUB_OUTPUT"
+
+  build:
+    needs: policy
+    if: needs.policy.outputs.refresh == 'true'
     permissions:
       contents: read
       pages: read

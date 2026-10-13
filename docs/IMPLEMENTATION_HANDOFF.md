@@ -4,6 +4,12 @@ Prepared 13 October 2026; local implementation, validation and authorized public
 
 ## Start here
 
+**Current publication pass:** Lorenzo authorized committing, pushing and publishing the pending update on 14 October 2026, with one final visual cleanup. See [Publication of team selection and seasonal refresh](#publication-of-team-selection-and-seasonal-refresh--14-october-2026) for the current result. The original plans and dated local checks below are historical acceptance evidence.
+
+**Latest UI correction:** [Single team shortcuts](#single-team-shortcuts--14-october-2026) supersedes the earlier separate chips/recent rows and repeated visible filter captions. Use that revision when reviewing or continuing the UI work.
+
+The plans are [Periodic data refresh](#periodic-data-refresh-handoff--13-october-2026) and [Team selection and remembered preferences](#team-selection-and-remembered-preferences--13-october-2026). Remaining work is Lorenzo's review, followed by an authorized project-only push/deployment and hosted checks of the revised schedule.
+
 Work in `/Users/lorenzogorini/Library/CloudStorage/OneDrive-UniversitàCommercialeLuigiBocconi/PhD/Coding/ultimateciu2026`.
 
 Read `AGENTS.md`, `README.md`, and this handoff. Implement and verify locally, prepare the GitHub Pages workflow, and stop with a reviewable result for Lorenzo. Do not publish during this first implementation pass. Do not modify the professional homepage repository, its DNS, or its deployment settings. Do not edit the source spreadsheet or submit its SOTG forms.
@@ -314,3 +320,197 @@ Validation: ten frontend tests, production build and `git diff --check` passed. 
 **Published and jointly verified:** background checkpoint `b09f71ca6f5d5ec4b09ecdcaf4939279cecdeb5b` was pushed only to `lorenz-gorini/ultimateciu2026`. [Pages run 38406172468](https://github.com/lorenz-gorini/ultimateciu2026/actions/runs/38406172468) passed the parser checks, fresh import, frontend tests/build, artifact and deployment. The public browser showed the sunrise WebP with the 80% white overlay, dark header and 56 fixtures, with no console errors. Live import timestamp: 13 October 2026 at 15:36:01 Europe/Rome. Manual clicks displayed “Verificato alle 15:36:51: nessuna nuova copia pubblicata” and later “Verificato alle 15:37:11: nessuna nuova copia pubblicata”; the data timestamps stayed unchanged because the published copy had not changed. The second click preserved the BFD Redshot search and its five fixtures. Filters were then reset. [Final public screenshot](../work/verification/published-sunrise-refresh.jpg) is ignored local evidence.
 
 The previous design task, refresh feedback fix and background refinement are all complete. A final documentation-only `[skip ci]` checkpoint records this verification without rebuilding unchanged assets. The remaining operational limit is the configured but as-yet unverified scheduled execution noted above; push/manual imports and manual browser checks are verified. No homepage, DNS, spreadsheet/form or other repository writes occurred. Lorenzo can review the public site immediately; no setup action is needed.
+
+## Periodic data refresh handoff — 13 October 2026
+
+### Objective, evidence and decision
+
+**Status: ready for implementation by the next model.** This research/documentation pass started on clean `main` at `8118f33`. Lorenzo requested a viable automatic refresh approach and a handoff, with special attention to match weekends and avoiding a publicly exposed Raspberry Pi. Only this handoff was edited; no workflow, runtime, GitHub configuration or Pi changes were made, and no deployment was triggered in this pass.
+
+**Decision:** retain GitHub Pages and the existing scheduled GitHub Actions importer. No new API, server, Google credential or public inbound connection is required. Data flows from the public Google XLSX export → GitHub-hosted importer/validation/build → Pages artifact → browser JSON fetch. Browser “Aggiorna” and the existing visible-tab polling then retrieve that published copy. A browser check cannot make the organizer enter scores or force an import.
+
+Verified in this pass:
+
+- `.github/workflows/pages.yml` already requests `7,22,37,52 * * * *` (every 15 minutes, UTC), supports push/manual triggers, and calls the shared `verify.yml` procedure. GitHub API returned `state: active`.
+- The API request `GET repos/lorenz-gorini/ultimateciu2026/actions/workflows/pages.yml/runs?event=schedule&per_page=5` returned `total_count: 0`. There is no observed scheduled execution yet. This newly created repository's missing runs do not establish a root cause. Manual/push deployments are proven by the preceding entries.
+- Local validated JSON has match dates 25 October, 7–8 November and 21–22 November 2026. Do not freeze these into importer constraints; they are planning evidence and may change in the source.
+- The current build imports fresh data and validates/tests it before deployment. Failure leaves the previous Pages deployment intact. Concurrency is already serialized with `cancel-in-progress: false`.
+
+GitHub documents that scheduled events can be delayed or dropped under load, execute on the default branch, and are disabled after 60 days without repository activity in public repositories. Therefore this is a best-effort refresh target, not a real-time guarantee. Sources: [schedule behavior](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule), [workflow troubleshooting](https://docs.github.com/en/actions/how-tos/troubleshoot-workflows). A manual run passing is not evidence that cron delivery works.
+
+### Concrete implementation plan
+
+1. **Inspect before editing.** Read `AGENTS.md`, `README.md`, this section and applicable Git/Python rules. Inspect worktree and remote status. Recheck workflow state, `PAGES_ENABLED`, default branch, deployed workflow contents and recent runs filtered by `event=schedule`. Distinguish missing events from skipped builds and failed imports. Remove the obsolete comment saying publication authorization is pending; publication was authorized and completed. Do not rebuild the importer or introduce a second deployment workflow.
+
+2. **Use a simple season schedule.** Proposed default: every 15 minutes throughout Saturday/Sunday and hourly Monday–Friday, through 23 November 2026 inclusive in `Europe/Rome`. Covering all weekends avoids fragile hardcoded match-date logic and includes rescheduling within the season. Use these UTC cron expressions in the existing `pages.yml`:
+
+   ```yaml
+   schedule:
+     - cron: "7,22,37,52 * * * 0,6"
+     - cron: "7 * * * 1-5"
+   ```
+
+   This requests 312 runs/week rather than the current 672, before delays/skips. It is intentionally all-day UTC on weekends: during these competition dates Rome is UTC+1 after the 25 October clock change, so late Sunday local coverage is included; Saturday's first local hour remains hourly. No fixture relies on that midnight boundary. Do not claim the cron expressions follow Rome wall time. Retain push and manual dispatch regardless of calendar date.
+
+3. **End frequent imports explicitly.** Add a small tested schedule-policy helper (suggested `scripts/refresh_policy.py`) and an inexpensive decision job before the reusable build. For scheduled events only, compare an aware current time in `Europe/Rome` against an explicit season-end date; output whether to build. Push/manual events bypass this season cutoff, while `PAGES_ENABLED` remains the overall deployment switch. Pass the decision through job outputs, so a skipped build also skips deployment. Use standard-library `zoneinfo`; do not install application dependencies merely to evaluate the gate. Expose the end date in one authoritative place and document how to extend it for postponed matches. After the cutoff, scheduled decision jobs may still start but must skip import/build/deploy; removing the cron later stops those small runs entirely. Do not imply this gate disables the GitHub workflow itself.
+
+4. **Make stale publication visible.** Preserve both existing data timestamps and manual check feedback. Add a restrained Italian warning when a scheduled match is today in `Europe/Rome` and `fetchedAt` is more than 60 minutes old: e.g. “La copia pubblicata risale a più di un’ora fa. Consulta il foglio originale per eventuali aggiornamenti.” Base this on downloaded age, not `sourceReportedAt`: the organizer's timestamp may stay unchanged even after a successful check. Use the existing source link. This warns about freshness; it cannot prove the scheduler failed. Do not advertise “live” scores or guaranteed 15-minute delivery. Preserve filters, cached validated data and accessible status announcements.
+
+5. **Keep security and failure behavior.** Continue anonymous read-only XLSX downloads on GitHub-hosted runners, bounded retries/timeouts, schema validation and atomic publication. Keep `contents: read` and deployment-only `pages: write`/`id-token: write`; do not introduce a personal token into Actions or browser code. No browser-accessible dispatch endpoint, automatic data commits, self-hosted runner, port forwarding, Tailscale Funnel, router changes or Pi service. Keep the professional homepage/DNS and source spreadsheet/forms untouched. A failed source import must never publish empty or synthetic data.
+
+6. **Update the existing README and this record.** Explain automatic import versus browser refresh, actual cadence and UTC semantics, the cutoff, manual recovery, and verified versus pending scheduled execution. Keep this file authoritative; do not create another competing refresh-status document. Changing the fetch timestamp on a successful unchanged import is correct: it records a new validated download. Keep deploying those successful copies initially; a content-hash optimization that suppresses publication would make that freshness timestamp misleading unless separately designed.
+
+### Tests and operational acceptance
+
+- Unit-test the schedule gate with injected times: scheduled before/after cutoff, Rome date around UTC midnight, manual and push after cutoff. Test stale-warning behavior before/after 60 minutes, a Rome match day versus an ordinary day, and unchanged organizer timestamp with fresh `fetchedAt`. Synthetic timestamps/data stay in tests.
+- Run the existing parser/frontend suites and production build using the README commands after a fresh validated import. Validate workflow YAML/job outputs and conditional dependencies; check `git diff --check`. Browser-check warning/readability, “Aggiorna”, filter preservation and last-valid-data behavior. Never simulate source failure by modifying the organizer's sheet or breaking production.
+- After a reviewed project-only deployment, use one manual workflow run to verify the import/build/deploy path and fetch the public JSON with caching disabled. Record run URL, conclusion and `fetchedAt`. Preserve the current separate `sourceReportedAt` meaning; source scores need not change for this test.
+- **Scheduled verification remains a separate acceptance item:** collect at least two successful runs whose event is actually `schedule`, with run URLs/times and the public JSON timestamp after each. Two runs prove execution was observed, not reliability or a timing guarantee. If there are no events after a 24-hour observation window, record this as an unresolved scheduler-delivery issue and investigate GitHub's workflow status/default-branch/settings before proposing a fallback. Do not keep rewriting cron blindly or mark scheduling complete because a manual run succeeds. An observation window does not require holding an agent turn open; Lorenzo can request a later check.
+- Before the first match weekend, verify a recent scheduled successful deployment. During matches, more than 60 minutes of published-data age is the practical signal for a manual recovery check. GitHub failed-run notifications do not detect an event that was never created; do not treat them as a missing-run monitor.
+
+Run from this project folder on the Mac (use installed `gh`, or the temporary CLI path recorded above if still present):
+
+```sh
+# Read-only diagnosis.
+gh api repos/lorenz-gorini/ultimateciu2026/actions/workflows/pages.yml --jq '{state,path}'
+gh run list --repo lorenz-gorini/ultimateciu2026 --workflow pages.yml --event schedule --limit 10
+gh variable get PAGES_ENABLED --repo lorenz-gorini/ultimateciu2026
+
+# Routine recovery: explicitly request a fresh import/deployment on main.
+gh workflow run pages.yml --repo lorenz-gorini/ultimateciu2026 --ref main
+gh run list --repo lorenz-gorini/ultimateciu2026 --workflow pages.yml --event workflow_dispatch --limit 3
+# Inspect/watch the newly created run ID, then press Aggiorna on the public site.
+gh run watch RUN_ID --repo lorenz-gorini/ultimateciu2026
+```
+
+The same recovery is available at **Actions → Refresh data and deploy Pages → Run workflow → main**. If the import fails, inspect the failing log and source layout; the public site continues serving its previous valid data. Do not overwrite that copy to make a check pass.
+
+### Fallback only if scheduling is inadequate
+
+An external scheduler can send an authenticated outbound HTTPS `workflow_dispatch` request to the same GitHub workflow. The website and its data still remain public on Pages. A Pi acting solely as that outbound timer needs no public listener and no change to Tailscale access, but introduces uptime/credential maintenance. It is optional, not the recommended first implementation; this handoff does not authorize Pi changes or creation of an external service account.
+
+If later approved, prefer a repository-restricted fine-grained token with **Actions: write** and an expiry, stored only in the scheduler's secret storage, or a suitably scoped GitHub App token. Actions-write still permits more than a single dispatch; it is not a harmless public key. Never reuse the broad Mac CLI credential, place a token in a URL/static asset, or expose an unauthenticated dispatch API. Restrict dispatches to this repository, `pages.yml`, `main`, apply a cooldown and check current runs to avoid duplicates. A hosted scheduler avoids Pi exposure too, but requires separate provider/cost/security review. [GitHub dispatch API and permission requirements](https://docs.github.com/en/rest/actions/workflows#create-a-workflow-dispatch-event).
+
+**Next owner/action:** the smaller model implements steps 1–6 and records tests plus remaining hosted acceptance. The present request is for a handoff; no runtime changes were applied here. Proposed documentation checkpoint: `Document periodic refresh implementation handoff` (only `docs/IMPLEMENTATION_HANDOFF.md`). Review before committing this checkpoint. For the implementation handoff, Lorenzo can send: “Read AGENTS.md, README.md and the Periodic data refresh handoff section in docs/IMPLEMENTATION_HANDOFF.md. Implement the recommended GitHub Actions approach, test locally, and report the exact changes and hosted checks still pending. Keep the Raspberry Pi and other repositories untouched. Prepare the result for my review before pushing scheduling changes.”
+
+## Team selection and remembered preferences — 13 October 2026
+
+The 14 October [UI correction](#single-team-shortcuts--14-october-2026) supersedes this section's visual layout and shortcut-click behavior: one combined toggle-button group replaces separate selected chips/recent shortcuts, visible redundant captions are removed, and clicking the input opens the chooser. Storage, team-OR/secondary-AND filtering and failure behavior still apply.
+
+### Objective and interaction contract
+
+**Status: ready for implementation, alongside periodic refresh above.** Lorenzo requested this addition to the handoff, not a UI implementation in this turn. Inspecting `src/main.js` confirms the current schedule has one free-text search and three single-value secondary filters, all in one form; no team preference is currently persisted. The existing data cache is separate. The starting checkout is still `main` at `8118f33`, with the preceding handoff edits preserved.
+
+**Decision:** make team selection the dominant control, support choosing several teams, and remember preferences with browser `localStorage`. This is small enough to implement without a server or cookie. It remembers this browser profile on this device, not a person across devices; private browsing, clearing site data or unavailable storage can remove persistence. Do not add analytics, accounts or device identifiers.
+
+1. **Primary row:** use the full available width for a visibly larger “Squadre” label and search input, with placeholder “Cerca una squadra o uno slot…”. Prefer a clean underline, generous padding and clear focus treatment on the existing opaque white filter panel. Add concise helper text: “Digita per cercare, oppure seleziona una o più squadre.” Keep the real label visible; an underscore character or placeholder alone is not a label. The underline must retain adequate contrast and the input must look interactive.
+2. **Team options:** focusing/clicking the control opens the available team list; typing narrows options with the existing case/accent-insensitive normalization. Use an accessible searchable chooser with labelled checkbox options and removable selected-team chips. The entire row should be easy to tap. Do not use a native multi-select requiring Ctrl/Cmd clicks. Every chosen team uses its canonical source ID and displayed source name.
+3. **Exact filtering semantics:** selected teams are combined with OR: a fixture matches when either resolved participant is any selected team; show each fixture once, including when both selected teams play each other. Date, phase and status combine with this result using AND. With no teams selected, typing continues the existing live text/slot filtering of fixtures, so selecting an option is optional. With selected teams, text narrows the available choices only; fixture results remain based on selected IDs. Show “Filtra le squadre da aggiungere” as the input hint in this state, so an extra query cannot silently hide the selected team's matches. Selecting a team clears the typed query. Empty selection plus empty query means all teams. Unresolved slots remain searchable as text but are not stored as invented team IDs.
+4. **Recent shortcuts:** below the primary input, show “Recenti” and up to three distinct team buttons, newest first. Record an explicit selection from the chooser or a recent shortcut; do not record keystrokes, automatic restoration, deselection, refreshes or incidental team-detail navigation. Clicking a recent shortcut selects/adds that team without removing other selections and moves it to the front; a selected shortcut can show its selected state, with removal handled by the chip or checkbox. Hide this row until history exists. Re-selecting a team must never create a duplicate.
+5. **Remember choices:** persist the last explicit selected ID set and the three recent IDs under a project-specific versioned key, e.g. `ultimateciu2026-team-preferences-v1`, separate from `ciu2026-data-v1`. On a later visit, restore the selected set once validated source data is available. Show the chips immediately with “Selezione ricordata su questo browser” and a clear way to return to all teams. Persist an explicitly cleared selection as empty; do not auto-select the newest recent team after the user chose all teams. Do not persist unfinished search text, date, phase or status across visits. Within the current visit, preserve all filters during data refresh and detail-route navigation as today.
+6. **Secondary row:** move “Data”, “Fase” and “Stato” below team search/history, with smaller visual emphasis, compact native dropdowns and an underline treatment consistent with the main input. Keep native dropdown indicators and visible labels; “multiple choices” for these controls means their normal menu of options, not an added multi-select requirement. Keep them single-value for this pass. On narrow screens wrap naturally without horizontal scrolling, retaining comfortable touch targets (aim for at least 44px height). Place “Azzera filtri” here. It clears current query, selected teams, date, phase and status, and saves the empty team selection, but retains recent history. Offer a discreet “Cancella recenti” action that erases only history.
+
+### Implementation boundaries and failure behavior
+
+- Extend `filterMatches` in `src/data.js` without breaking callers that pass only `{}` or `{ phase: "finals" }`. Implement pure selection/history normalization helpers where useful and test behavior rather than CSS structure. Update the schedule renderer/event handlers in `src/main.js` and responsive rules in `src/style.css`. The separate “Squadre” directory can retain its existing text search; do not expand the task into a route redesign.
+- Validate saved values as untrusted input: expected version/object, arrays of strings, unique IDs, maximum three recents, and IDs present in current validated data. Discard malformed preferences safely and prune removed teams. Resolve names from current data so renamed teams display correctly. Unknown IDs must not produce a permanently empty schedule. On data refresh, reconcile IDs without replacing the user's active choices with an older stored value.
+- Wrap storage reads/writes in error handling. If storage is blocked/full, filtering and recent shortcuts still work in memory for the visit. Store IDs only, not source data, tokens, personal details or search history. `localStorage` shares the GitHub Pages origin with other subpaths, so use this project's distinct key and never call `localStorage.clear()` or modify unrelated keys.
+- Preserve focus/caret and open chooser state during typing; do not rebuild the focused input on every keystroke. Support keyboard navigation to options, Space to toggle a checkbox, Escape to close, and normal Tab order. Give chip-removal buttons labels such as “Rimuovi BFD Redshot”. Keep result counts announced politely; avoid announcing a whole re-rendered page. Maintain readable contrast against the decorative background.
+- Inspect the existing “Prossima data” action: if it clears team selection to reveal the next date, apply the same explicit reset/persistence semantics, update all visible chips/controls and preserve history. Do not leave UI and filtering state inconsistent. Update its helper text if needed to explain that it displays all teams.
+- The initial brief's all-fixtures default now applies to first visits and empty saved selections; restoring an explicitly chosen team set on repeat visits is the requested exception. Do not change importer, source schema, scores, assets or deployment logic for this UI task.
+
+### Acceptance checks and handoff delivery
+
+1. Test no selection, one/two/three selected teams, both selected teams in the same fixture (no duplication), text-only name/slot search, accent/case matching, and conjunction with each secondary filter. Check that typing to add a team does not unexpectedly hide matches already selected.
+2. Test recent ordering/deduplication/three-item limit, clear-history versus reset-filters behavior, selection restoration including an explicitly empty set, malformed/unknown IDs, renamed/removed teams and denied storage. Use clearly synthetic preferences; never alter the frozen fixture.
+3. Browser-check a first visit, selection then reload, returning from team/match details, “Aggiorna”, automatic data refresh, reset and next-date navigation. Verify keyboard operation, focus retention while typing, selected-chip removal and no overflow at 320px/390px. The team search must be visually more prominent than date/phase/status at both desktop and mobile widths.
+4. Run relevant frontend tests, production build and `git diff --check`; run the broader checks required by any simultaneously changed scheduling code. Record actual results and remaining limitations here. No importer rerun/test expansion is needed solely for CSS or preference changes unless data-related code is also changed.
+
+**Next owner/action:** the smaller model should implement both requested handoff sections and prepare a local preview for Lorenzo's review before pushing. Use this combined prompt instead of the earlier refresh-only prompt:
+
+> Read AGENTS.md, README.md, and the “Periodic data refresh handoff” and “Team selection and remembered preferences” sections in docs/IMPLEMENTATION_HANDOFF.md. Implement both: the GitHub Actions refresh plan, and prominent multi-team search with three recent shortcuts, locally remembered selection and smaller secondary filters. Follow the specified selection/reset semantics, test the behavior and provide a working local preview. Record verification and pending hosted checks in the same handoff. Keep the Raspberry Pi, source spreadsheet and other repositories untouched. Stop for my review before pushing these changes.
+
+Documentation-only verification for this turn: inspected the existing filter implementation and preserved the earlier refresh handoff; `git diff --check` passed. Runtime/tests were not changed or run. The combined documentation checkpoint now consists only of `docs/IMPLEMENTATION_HANDOFF.md`, with proposed subject `Document refresh and team selection implementation plans`; it remains uncommitted for review.
+
+## Local implementation results — 13 October 2026
+
+**Status: complete locally, awaiting Lorenzo's review before push.** Starting branch/commit: `main` / `8118f33`. The only pre-existing change was this handoff's two implementation plans; these were preserved. The instruction to stop before pushing these changes supersedes the earlier publication scope for this review pass. No GitHub write or Raspberry Pi/homepage/DNS/source-spreadsheet change occurred. GitHub access in this pass was read-only inspection of this project's metadata/runs and the official actionlint release.
+
+### Completed behavior
+
+- Partite now puts a larger labelled, underlined team search in its own primary row. Its chooser uses native checkboxes, can select several teams, and displays removable chips. Recent shortcuts contain up to three explicit choices. Text-only name/slot search still filters fixtures; with selected teams, text narrows additional choices and selected IDs determine fixtures. Selected teams use OR, secondary filters use AND, and fixtures never duplicate.
+- `src/preferences.js` validates versioned stored preferences, removes unknown/duplicate IDs and caps history. Names resolve from the current dataset. It restores an explicit selection once per visit; later data refresh reconciles current memory rather than reloading old preferences. Reset/next-date save an empty selection and retain history; clear-history preserves selection. Storage failure leaves the controls working in memory and explains that persistence is unavailable. No credentials/cookies/identity tracking were added.
+- Typing updates options/results without replacing the input, preserving caret/focus. ArrowDown enters the first visible checkbox, Tab/Space operate native controls, and Escape closes the chooser. Changed-data refresh captures focus after its request, so ongoing typing/navigation is preserved. Refresh check feedback and both existing timestamps retain their meanings.
+- `.github/workflows/pages.yml` now has the proposed weekend/weekday UTC cron expressions and a lightweight policy job before the existing shared build. `scripts/refresh_policy.py` is dependency-free, emits `refresh=true/false` as a job output, and skips scheduled import/build/deployment after 23 November 2026 in Rome. Push/manual requests bypass the cutoff; `PAGES_ENABLED` remains the overall switch. No duplicate importer/deployment path or new service was introduced. The obsolete pending-publication comment was removed.
+- A stable warning above content appears on a Rome match day if published download age exceeds 60 minutes, linking to the original spreadsheet. Fresh downloads do not warn merely because the organizer timestamp is old. README describes selection/storage/reset, schedule UTC boundaries, cutoff extension and deployed versus pending state.
+
+### Verification evidence
+
+| Check | Result |
+| --- | --- |
+| Python suite: `conda run -n general python -m unittest discover -s tests -p 'test_*.py' -v` | 20 passed: 17 existing parser checks + 3 refresh-policy tests; synthetic cutoff/midnight/DST inputs, manual/push bypass and invalid inputs |
+| Frontend suite: `npm test` | 15 passed: 10 existing + 5 selection/preferences/stale-warning checks, including denied/full storage and explicit empty restoration |
+| Fresh import: `conda run -n general python -m importer` | Valid live download, 12 teams, 56 fixtures, 6 carry-overs; fetched `2026-10-13T21:40:49.435474+00:00` (23:40:49 Rome); unchanged organizer timestamp 11 October 16:15:23 |
+| Production build: `npm run build` | Passed at `/ultimateciu2026/` using validated live data; generated data/build remain ignored |
+| Workflow static check: actionlint 1.7.12 | Passed on pages.yml and verify.yml, including output/needs/conditional wiring; shellcheck/pyflakes integrations disabled (neither installed) |
+| Diff check: `git diff --check` | Passed |
+
+Official actionlint Darwin arm64 archive was downloaded only to `/private/tmp/ciu-actionlint` and checked against its published SHA256 (`aba9ced2dee8d27fecca3dc7feb1a7f9a52caefa1eb46f3271ea66b6e0e6953f`). No runtime dependency/lock was changed. A first browser pass exposed a typo in the new stale predicate; it was fixed, covered by the new test and rebuilt. That intermediate error is resolved, not a remaining limitation.
+
+Browser verification used the production preview with actual live JSON: text search, unresolved slot search, one/multiple selections, recent ordering/deduplication/three-item cap, reset then reload (56/56 restored), remembered selection then reload, chip removal, clear-history, next-date reset, return from match/team details, keyboard selection and input caret retention. With three teams selected, 12 unique fixtures were displayed; typing another name did not alter these results. A changed local import loaded via Aggiorna while preserving four selected teams and the date filter (7/56 fixtures); its status confirmed a new copy. A later unchanged check preserved query/selection and showed successful no-new-copy feedback. Fresh final-preview console checks found no application errors.
+
+Responsive checks at 320px and 390px found no horizontal overflow: document client/scroll widths were respectively 305/305 and 375/375 (15px scrollbar reserved). These are browser viewport tests, not physical-device or screen-reader audits. The controls use labels, native checkboxes/selects, visible focus, accessible removal names and polite result counts; full assistive-technology testing remains outside this validation.
+
+An isolated copy under ignored `work/verification/stale-preview/` used clearly marked synthetic dates/timestamps (never public/data.json, main dist or a deployment artifact). The stale warning was visible/readable, and stopping that test server then pressing Aggiorna produced “Ultimi dati validi conservati” while retaining 56 fixtures. The test server was stopped and its tab closed. Automated failure tests additionally cover HTTP, invalid JSON/schema and older snapshots. The primary preview remains running at [localhost:4173](http://127.0.0.1:4173/ultimateciu2026/).
+
+The same isolated preview was restarted for a final changed-data automatic-poll check after a temporary usage-limit interruption. With BFD Redshot selected and query `one` being typed, the test-only JSON download timestamp advanced to `2026-10-13T21:51:08.616Z`. The normal 90-second browser poll loaded it without a manual click: the stale warning disappeared, the selected team's five fixtures remained, the chooser stayed open, and input focus/query/caret (`search`, `one`, position 3) were preserved. Console errors were empty. The temporary test server/tab were stopped/closed again. The policy CLI was also executed locally with `workflow_dispatch` and emitted `refresh=true` to its output file. The final main preview showed three remembered teams and recent shortcuts, 12 unique fixtures and no console errors. [Final local screenshot](../work/verification/team-selection-local.png) is ignored review evidence; temporary viewport overrides were reset.
+
+### Hosted evidence, pending checks and checkpoint
+
+**New evidence supersedes the earlier zero-run observation:** the read-only GitHub inspection now found one completed successful `schedule` run, [38447169780](https://github.com/lorenz-gorini/ultimateciu2026/actions/runs/38447169780), created 13 October at 20:29:31 Rome and updated at 20:31:01. It ran the existing deployed workflow at `8118f33`; it does not verify the revised policy. API also confirmed default branch `main`, workflow `active`, and `PAGES_ENABLED=true`. The deployed workflow blob matched the pre-edit local workflow. Scheduling has been observed once; timing/reliability is not guaranteed by this evidence.
+
+After Lorenzo approves the local preview: review the scoped diff, checkpoint/push only this project, verify a manual full import/deploy plus public JSON, then collect at least two successful scheduled executions of the new workflow with URLs and public timestamps as specified in the acceptance plan. If no scheduled events appear in a 24-hour observation window, investigate before considering the optional external dispatcher. No Pi or external scheduler configuration is required now.
+
+Proposed checkpoint subject: **`Add remembered team selection and seasonal data refresh`**. Exact owned paths (including the existing handoff plans):
+
+```text
+.github/workflows/pages.yml
+README.md
+docs/IMPLEMENTATION_HANDOFF.md
+index.html
+scripts/refresh_policy.py
+src/data.js
+src/main.js
+src/preferences.js
+src/style.css
+tests/frontend.test.mjs
+tests/test_refresh_policy.py
+```
+
+No stage/commit/push was made. Generated live JSON, dist, synthetic preview copies, screenshots, dependencies and temporary validation binaries stay excluded. Lorenzo's next action is to review the local preview; after approval, the agent can stage/commit exactly these paths and publish the project-only update. Suggested resume message: “The local preview is approved. Commit and push the scoped team-selection and seasonal-refresh changes, verify the deployment, and report which scheduled-run checks remain pending.”
+
+## Single team shortcuts — 14 October 2026
+
+**Status: corrected locally, pending review before publication.** Lorenzo's annotated screenshot and direct instructions rejected the duplicated selected-team and recent-team rows, requested one group of buttons beside the input, and removed the repeated visible Squadre/Data/Fase/Stato captions. Starting branch remains `main` at `8118f33`; all prior uncommitted implementation was retained.
+
+The primary input now opens the chooser on both focus and click (including another click after Escape); it remains editable and filters choices. A small arrow inside the underline can open/close it. The single shortcut group displays the union of up to three recent IDs and all selected IDs, each once. Teal/check means included; white/plus means available. Each button toggles inclusion in either direction, including by keyboard Space. Selecting promotes recent history; deselecting does not. A selected team outside the three recent IDs remains visible; removing such a button restores focus to the search input. This avoids hidden selections when more than three teams are chosen.
+
+The shortcut group sits beside the search on desktop and wraps underneath on narrow screens. Separate selected chips, visible Recenti headings, normal persistence notes and the old “Scegli squadre” caption are removed. Labels/helper text remain visually hidden for accessibility. The secondary dropdowns display just their chosen values (such as “Tutte le date”); their accessible names remain Data/Fase/Stato. “Cancella recenti” is available inside the open chooser, and keeps selected teams visible in the single group. Blocked-storage feedback remains visible when relevant.
+
+Lorenzo then requested an even smaller secondary row. Its dropdowns now use 0.76rem text, at most 170px width per desktop control, 36px desktop height and reduced vertical spacing; the reset button follows that scale. Mobile controls retain 44px touch heights. A mobile date choice still reduced Redshot's five fixtures to the two on 25 October, and returning to all dates restored five. The final layout has no repeated visible captions.
+
+Preference writes now occur only on explicit choices/reset/history-clear actions, not incidental redraws. This avoids an older tab replacing a newer saved selection merely by navigating or polling. A two-tab browser check confirmed this: the older tab retained its empty in-memory selection (56 fixtures), while the main tab's newer Redshot choice still restored five fixtures after reload. The temporary second tab was closed.
+
+Owned revision paths: `src/main.js`, `src/preferences.js`, `src/style.css`, `tests/frontend.test.mjs`, `README.md`, and this handoff. No importer, schema, fixture, scheduling or deployment change was needed for this correction. The complete pending checkpoint is still the exact 11-file scope listed above, with subject `Add remembered team selection and seasonal data refresh`.
+
+Verification: **16 frontend tests passed** (including a new shortcut-union/toggle test), production build passed with 12 teams/56 live fixtures, and `git diff --check` passed. Browser checks verified toggling on/off, active color and `aria-pressed`, restoration after reload, input click/typing/reopening after Escape, checkbox/shortcut keyboard operation, four selected teams displayed once each, and focus recovery when removing a selected team outside recent history. With two BFD teams selected, 9 fixtures appeared; removing Mix White left the five Redshot fixtures. Narrow layouts had no horizontal overflow at 320px (client/scroll 305/305) and 390px (375/375). Labels remain accessible while visual captions are absent. The prior 20 Python tests and workflow validation remain applicable to their unchanged code. Final screenshot: [simplified local filters](../work/verification/team-shortcuts-local.png). No commit, push or publication was made. Next action: Lorenzo reviews the revised local preview; hosted checks remain as listed above.
+
+## Publication of team selection and seasonal refresh — 14 October 2026
+
+**Authorization:** Lorenzo requested removal of the photographed “Partite / Prossima data” upper panel, a more visible background, and then commit/push/publication. This approves the whole pending 11-file project checkpoint and supersedes the preceding stop-before-push instruction. Only `lorenz-gorini/ultimateciu2026` is within the write scope; homepage/DNS, source spreadsheet/forms, Raspberry Pi and other repositories remain untouched.
+
+The schedule now starts directly with the team filters. The unused next-date button/handler and schedule-panel CSS are retired; an invisible H1 preserves the page's accessible heading. The background's white overlay is reduced from 80% to 60% on desktop and 86% to 68% on mobile; cards stay opaque white. This final cleanup adds no file to the previously reviewed checkpoint scope.
+
+Local verification: 16 frontend tests, production build using validated live data and `git diff --check` passed. actionlint 1.7.12 passed the two workflows. The local browser showed no upper panel/next-date button, all 56 fixtures and zero console errors. At 320px, client/scroll widths were both 305px; the viewport override was reset. Existing 20 Python checks remain applicable and will run again in the deployment workflow. GitHub remote main was checked read-only at `8118f33`, matching local HEAD before the checkpoint.
+
+Checkpoint subject: `Improve team filters and schedule seasonal data refresh`. Exact scope remains `.github/workflows/pages.yml`, `README.md`, `docs/IMPLEMENTATION_HANDOFF.md`, `index.html`, `scripts/refresh_policy.py`, `src/data.js`, `src/main.js`, `src/preferences.js`, `src/style.css`, `tests/frontend.test.mjs`, `tests/test_refresh_policy.py`. Generated data/builds/screenshots/test previews and temporary tools are excluded. Current stage: preparing the authorized scoped commit/push, followed by deployment and public verification. Revised cron delivery still needs actual scheduled-run evidence after publication; successful push/manual runs do not establish its timing/reliability.

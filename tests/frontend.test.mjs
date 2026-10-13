@@ -6,10 +6,12 @@ import {
   formatDate,
   matchState,
   normalizeSearch,
+  publicationIsStale,
   requestData,
   romeNow,
   validateData,
 } from "../src/data.js";
+import { PREFERENCES_KEY, normalizePreferences, readPreferences, savePreferences, selectTeam, shortcutTeamIds, toggleTeam } from "../src/preferences.js";
 
 const published = JSON.parse(readFileSync("public/data.json", "utf8"));
 // SYNTHETIC in-memory baseline: future live scores must not break missing-result tests.
@@ -216,4 +218,92 @@ test("SYNTHETIC opposite SOTG directions and zero values remain distinct", () =>
   );
   evaluations[1].evaluatingTeamId = evaluations[0].evaluatingTeamId;
   assert.throws(() => validateData(next));
+});
+
+test("multi-team selection uses OR without duplicates and secondary filters use AND", () => {
+  for (const teamIds of [[], ["x1"], ["x1", "x5"], ["x1", "x5", "y1"]]) {
+    const result = filterMatches(data, { teamIds }, now);
+    const expected = data.matches.filter((match) => !teamIds.length ||
+      [match.a.teamId, match.b.teamId].some((id) => teamIds.includes(id)));
+    assert.deepEqual(new Set(result.map((match) => match.id)), new Set(expected.map((match) => match.id)));
+    assert.equal(new Set(result.map((match) => match.id)).size, result.length);
+    for (const secondary of [
+      { date: "2026-10-25" }, { phase: "second" }, { status: "scheduled" },
+      { date: "2026-10-25", phase: "first", status: "scheduled" },
+    ]) {
+      assert.deepEqual(
+        filterMatches(data, { teamIds, ...secondary }, now),
+        filterMatches({ ...data, matches: expected }, secondary, now),
+      );
+    }
+  }
+  assert.equal(filterMatches(data, { teamIds: ["x1", "x5"] }, now).filter((match) => match.id === "X_1").length, 1);
+  assert.deepEqual(filterMatches(data, { teamIds: ["x1"], search: "does not match" }, now), filterMatches(data, { teamIds: ["x1"] }, now));
+  const accented = clone();
+  accented.teams.find((team) => team.id === "x1").name = "BFD Rédshot";
+  assert.equal(filterMatches(accented, { search: "bfd REDSHOT" }, now).length, 5);
+});
+
+test("SYNTHETIC preferences reconcile IDs, version, duplicates, removals and renamed teams", () => {
+  const value = { version: 1, selected: ["x1", "x1", "missing"], recent: ["x5", "x1", "y1", "x2", "x5"] };
+  const normalized = normalizePreferences(value, data.teams);
+  assert.deepEqual(normalized, { version: 1, selected: ["x1"], recent: ["x5", "x1", "y1"] });
+  const renamed = data.teams.map((team) => ({ ...team, name: "SYNTHETIC renamed" }));
+  assert.deepEqual(normalizePreferences(normalized, renamed), normalized);
+  assert.deepEqual(normalizePreferences(normalized, data.teams.filter((team) => team.id !== "x1")).selected, []);
+  for (const malformed of [null, [], { version: 2, selected: [], recent: [] }, { version: 1, selected: "x1", recent: [] }, { version: 1, selected: [1], recent: [] }]) {
+    assert.deepEqual(normalizePreferences(malformed, data.teams), { version: 1, selected: [], recent: [] });
+  }
+});
+
+test("SYNTHETIC recent choices promote explicitly, cap at three, and reset independently", () => {
+  let preferences = { version: 1, selected: [], recent: [] };
+  for (const id of ["x1", "x5", "y1", "x2", "x5"]) preferences = selectTeam(preferences, id);
+  assert.deepEqual(preferences.recent, ["x5", "x2", "y1"]);
+  assert.deepEqual(preferences.selected, ["x1", "x5", "y1", "x2"]);
+  assert.deepEqual(normalizePreferences(preferences, data.teams), preferences); // restoration doesn't promote
+  const reset = { ...preferences, selected: [] };
+  assert.deepEqual(normalizePreferences(reset, data.teams).recent, preferences.recent);
+  const cleared = { ...preferences, recent: [] };
+  assert.deepEqual(normalizePreferences(cleared, data.teams).selected, preferences.selected);
+});
+
+test("one shortcut set toggles selection and keeps selected teams outside recent history", () => {
+  let preferences = { version: 1, selected: ["x1", "x2", "x5", "y1"], recent: ["y1", "x5", "x2"] };
+  assert.deepEqual(shortcutTeamIds(preferences), ["y1", "x5", "x2", "x1"]);
+  preferences = toggleTeam(preferences, "x5");
+  assert.deepEqual(preferences.selected, ["x1", "x2", "y1"]);
+  assert.deepEqual(preferences.recent, ["y1", "x5", "x2"]);
+  assert.equal(shortcutTeamIds(preferences).filter((id) => id === "x5").length, 1);
+  preferences = toggleTeam(preferences, "x5");
+  assert.ok(preferences.selected.includes("x5"));
+  assert.deepEqual(preferences.recent, ["x5", "y1", "x2"]);
+  assert.deepEqual(shortcutTeamIds({ ...preferences, recent: [] }), preferences.selected);
+});
+
+test("SYNTHETIC storage restores explicit empty selections and tolerates denied/full storage", () => {
+  const values = new Map([["unrelated-key", "preserved"]]);
+  const storage = { getItem: (key) => values.get(key) || null, setItem: (key, value) => values.set(key, value) };
+  const preferences = { version: 1, selected: ["x1"], recent: ["x1"] };
+  assert.equal(savePreferences(storage, preferences), true);
+  assert.deepEqual(readPreferences(storage, data.teams), preferences);
+  savePreferences(storage, { ...preferences, selected: [] });
+  assert.deepEqual(readPreferences(storage, data.teams), { ...preferences, selected: [] });
+  assert.equal(values.get("unrelated-key"), "preserved");
+  values.set(PREFERENCES_KEY, "bad JSON");
+  assert.deepEqual(readPreferences(storage, data.teams).selected, []);
+  const denied = { getItem: () => { throw Error("denied"); }, setItem: () => { throw Error("full"); } };
+  assert.deepEqual(readPreferences(denied, data.teams).selected, []);
+  assert.equal(savePreferences(denied, preferences), false);
+  assert.deepEqual(selectTeam(readPreferences(denied, data.teams), "x1").selected, ["x1"]);
+  assert.equal(savePreferences(undefined, preferences), false);
+});
+
+test("SYNTHETIC stale publication warning follows Rome match day and download age", () => {
+  const synthetic = { ...data, fetchedAt: "2026-10-24T21:30:00Z", sourceReportedAt: "2026-01-01T00:00:00Z" };
+  assert.equal(publicationIsStale(synthetic, new Date("2026-10-24T22:30:00Z")), false); // exactly 60min
+  assert.equal(publicationIsStale(synthetic, new Date("2026-10-24T22:30:01Z")), true); // Rome Oct 25
+  assert.equal(publicationIsStale(synthetic, new Date("2026-10-26T10:00:00Z")), false);
+  assert.equal(publicationIsStale({ ...synthetic, fetchedAt: "2026-10-25T09:59:00Z" }, new Date("2026-10-25T10:00:00Z")), false);
+  assert.equal(publicationIsStale(null, now), false);
 });
