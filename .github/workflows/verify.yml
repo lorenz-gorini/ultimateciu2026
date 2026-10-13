@@ -1,0 +1,52 @@
+name: Verify application
+
+on:
+  pull_request:
+  workflow_call:
+    inputs:
+      upload-pages:
+        description: Upload validated build for the calling Pages workflow
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  pages: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Install pinned dependencies
+        run: |
+          python -m pip install --require-hashes -r requirements.lock
+          npm ci
+      - name: Check immutable fixture and synthetic failures
+        run: python -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Import live public workbook
+        run: python -m importer
+      - name: Test and build at project subpath
+        env:
+          REQUIRE_LIVE_DATA: "1"
+        run: |
+          npm test
+          npm run build
+      - name: Configure Pages
+        if: inputs.upload-pages == true
+        uses: actions/configure-pages@v5
+      - name: Upload Pages artifact
+        if: inputs.upload-pages == true
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: dist

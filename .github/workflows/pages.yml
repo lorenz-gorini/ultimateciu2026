@@ -1,0 +1,44 @@
+name: Refresh data and deploy Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    # UTC, best effort. Disable/revisit after the competition.
+    - cron: "7,22,37,52 * * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    # Intentionally disabled until the separate review/publication authorization.
+    if: vars.PAGES_ENABLED == 'true'
+    permissions:
+      contents: read
+      pages: read
+    uses: ./.github/workflows/verify.yml
+    with:
+      upload-pages: true
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy validated artifact
+        id: deployment
+        uses: actions/deploy-pages@v4

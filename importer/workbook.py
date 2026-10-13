@@ -1,0 +1,322 @@
+"""Validated XLSX-to-JSON boundary. No formula calculation or source writes."""
+
+from __future__ import annotations
+
+import hashlib
+import io
+import json
+import math
+import re
+from datetime import date, datetime, time
+from pathlib import Path
+from typing import Any
+from zoneinfo import ZoneInfo
+
+import openpyxl
+from jsonschema import Draft7Validator
+
+SOURCE_URL = "https://docs.google.com/spreadsheets/d/1k_xJctOAUqizJW00395YIvDwC5gDZKek2R26UpJ_HUQ/edit"
+EXPORT_URL = SOURCE_URL.replace("/edit", "/export?format=xlsx")
+ROOT = Path(__file__).resolve().parents[1]
+SCHEMA = json.loads((ROOT / "src/data.schema.json").read_text())
+MATCH_ID = re.compile(r"(?:[XYP]_\d+|[QSF]\d+)$")
+SLOT = re.compile(r"(?:[XY][1-6]|[1-6][XY]|(?:[1-9]|1[0-2])P|[WL][QS]\d+)$")
+
+
+class ImportFailure(ValueError):
+    """Source no longer satisfies the inspected schema; retain previous JSON."""
+
+
+def require(condition: bool, message: str) -> None:
+    if not condition:
+        raise ImportFailure(message)
+
+
+class Sheet:
+    """Read cached cells and expand only actual merge ranges in memory."""
+
+    def __init__(self, cached: Any, formulas: Any) -> None:
+        self.cached, self.formulas = cached, formulas
+        self.anchors: dict[tuple[int, int], tuple[int, int]] = {}
+        for merged in cached.merged_cells.ranges:
+            for row in range(merged.min_row, merged.max_row + 1):
+                for col in range(merged.min_col, merged.max_col + 1):
+                    self.anchors[row, col] = (merged.min_row, merged.min_col)
+
+    def get(self, row: int, col: int) -> Any:
+        row, col = self.anchors.get((row, col), (row, col))
+        cell = self.cached.cell(row, col)
+        require(cell.data_type != "e", f"{self.cached.title}!{cell.coordinate}: Excel error {cell.value}")
+        require(not (self.formulas.cell(row, col).data_type == "f" and cell.value is None),
+                f"{self.cached.title}!{cell.coordinate}: formula has no cached result")
+        return None if cell.value == "" else cell.value
+
+    def header(self, coordinate: str, expected: str) -> None:
+        cell = self.cached[coordinate]
+        require(self.get(cell.row, cell.column) == expected,
+                f"{self.cached.title}!{coordinate}: expected header {expected!r}")
+
+
+def provenance(sheet: str, cell_range: str) -> dict:
+    return {"sheet": sheet, "range": cell_range}
+
+
+def string(value: Any, location: str, *, optional: bool = False) -> str | None:
+    if value is None and optional:
+        return None
+    require(isinstance(value, str) and bool(value.strip()), f"{location}: expected nonempty text")
+    return value  # Preserve canonical spelling; no fuzzy joins.
+
+
+def numeric(value: Any, location: str, *, integer: bool = False) -> int | float | None:
+    if value is None:
+        return None
+    require(type(value) in (int, float) and math.isfinite(value) and value >= 0,
+            f"{location}: expected finite nonnegative number, received {value!r}")
+    require(not integer or value == int(value), f"{location}: expected integer")
+    return int(value) if integer else value
+
+
+def local_date(value: Any, location: str) -> str | None:
+    if value is None:
+        return None
+    require(isinstance(value, (datetime, date)), f"{location}: expected Excel date")
+    return value.date().isoformat() if isinstance(value, datetime) else value.isoformat()
+
+
+def local_time(value: Any, location: str) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, time):
+        return value.strftime("%H:%M")
+    require(isinstance(value, str) and re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", value) is not None,
+            f"{location}: expected HH:mm time")
+    return value
+
+
+def parse_workbook(payload: bytes, fetched_at: str, source_mode: str = "live") -> dict:
+    """Normalize the inspected four-sheet contract and validate before output."""
+    try:
+        cached = openpyxl.load_workbook(io.BytesIO(payload), data_only=True)
+        formulas = openpyxl.load_workbook(io.BytesIO(payload), data_only=False)
+    except Exception as exc:
+        raise ImportFailure(f"Not a readable XLSX workbook: {exc}") from exc
+    names = ["Classifiche e format", "Partite", "Valutazioni SOTG", "Statistiche"]
+    require(all(name in cached.sheetnames for name in names), "Missing required workbook sheets")
+    sheets = {name: Sheet(cached[name], formulas[name]) for name in names}
+    standings, games, spirit, stats = (sheets[name] for name in names)
+    for coordinate, expected in {"B4": "Seed", "C4": "Squadra", "D4": "ASD/SSD", "J4": "Provincia",
+                                 "B19": "PRIMA FASE A GIRONI", "H19": "SECONDA FASE A GIRONI",
+                                 "N19": "CLASSIFICA FINALE", "B20": "GIRONE X", "B28": "GIRONE Y",
+                                 "H20": "POOL ALTO", "H26": "POOL MEDIO", "H32": "POOL BASSO"}.items():
+        standings.header(coordinate, expected)
+    for row in (4, 21, 40, 48, 56, 66):
+        for col, expected in {"B": "TAPPA", "C": "LUOGO", "D": "DATA", "E": "ORARIO", "H": "CAMPO", "J": "PARTITE", "R": "SOTG"}.items():
+            games.header(f"{col}{row}", expected)
+    for coordinate, expected in {"J3": "PRIMA FASE A GIRONI", "J39": "SECONDA FASE A GIRONI", "J65": "FASE FINALE"}.items():
+        games.header(coordinate, expected)
+    for coordinate, expected in {"A1": "PARTITA", "B1": "DATA", "C1": "SQUADRA VALUTANTE", "D1": "SQUADRA VALUTATA",
+                                 "G1": "Conoscenza e applicazione delle regole", "H1": "Falli e contatto fisico",
+                                 "I1": "Comportamento leale e corretto", "J1": "Atteggiamento positivo e autocontrollo",
+                                 "K1": "Comunicazione", "L1": "TOTALE", "M1": "COMMENTO"}.items():
+        spirit.header(coordinate, expected)
+    for coordinate, expected in {"A1": "SQUADRA", "B1": "COGNOME", "C1": "NOME", "D1": "STATISTICHE PER PARTITA   [ assist | mete ]",
+                                 "N1": "tot.\nassist", "O1": "tot.\nmete", "P1": "TOTALE"}.items():
+        stats.header(coordinate, expected)
+    for index in range(10):
+        require(stats.get(2, index + 4) == f"{index + 1}a", "Statistiche: numbered match-slot headings changed")
+
+    # Initial slots are explicit identities, distinct from rank qualifiers (1X).
+    name_slots = {}
+    for pool, rows in (("X", range(21, 27)), ("Y", range(29, 35))):
+        for row in rows:
+            slot, name = standings.get(row, 2), standings.get(row, 3)
+            require(isinstance(slot, str) and re.fullmatch(f"{pool}[1-6]", slot), f"Initial pool row {row}: invalid slot")
+            require(name not in name_slots and slot not in name_slots.values(), "Initial team-name/slot collision")
+            name_slots[string(name, f"C{row}")] = slot
+    teams = []
+    for row in range(5, 17):
+        name = string(standings.get(row, 3), f"C{row}")
+        require(name in name_slots, f"Team {name!r} absent from initial slots")
+        slot = name_slots[name]
+        teams.append({"id": slot.lower(), "slot": slot, "name": name,
+                      "seed": numeric(standings.get(row, 2), f"B{row}", integer=True),
+                      "affiliation": string(standings.get(row, 4), f"D{row}"), "province": string(standings.get(row, 10), f"J{row}"),
+                      "pool": slot[0], "provenance": provenance(names[0], f"B{row}:L{row}")})
+    by_name = {team["name"]: team["id"] for team in teams}
+    by_slot = {team["slot"]: team["id"] for team in teams}
+
+    def participant(slot: Any, name: Any, location: str) -> dict:
+        require(isinstance(slot, str) and SLOT.fullmatch(slot) is not None, f"{location}: unknown participant slot {slot!r}")
+        if name is not None:
+            require(name in by_name, f"{location}: unknown exact team name {name!r}")
+        team_id = by_name[name] if name is not None else None
+        if slot in by_slot:
+            require(team_id == by_slot[slot], f"{location}: initial slot/name mismatch or missing cached team")
+        return {"slot": slot, "teamId": team_id}
+
+    def score_at(row: int) -> dict:
+        require(games.get(row, 13) in (None, "-", "–", ":"), f"Partite!M{row}: unsupported result/status marker")
+        return {"a": numeric(games.get(row, 12), f"L{row}", integer=True),
+                "b": numeric(games.get(row, 14), f"N{row}", integer=True)}
+
+    matches, carryovers = [], []
+    for row in range(5, cached[names[1]].max_row + 1):
+        match_id, marker = games.get(row, 9), games.get(row, 17)
+        if marker is not None:
+            require(marker == "ereditata" and match_id is None, f"Partite!Q{row}: unknown carry-over/status marker")
+            require(40 < row < 63, "Carry-over outside second phase")
+            carryovers.append({"pool": "high" if row < 48 else "middle" if row < 56 else "low",
+                               "a": participant(games.get(row, 10), games.get(row, 11), f"J{row}"),
+                               "b": participant(games.get(row, 16), games.get(row, 15), f"P{row}"),
+                               "score": score_at(row), "provenance": provenance(names[1], f"J{row}:Q{row}")})
+        if match_id is None:
+            # Never silently drop a fixture with a removed ID.
+            require(marker is not None or not (isinstance(games.get(row, 10), str) and SLOT.fullmatch(games.get(row, 10))),
+                    f"Partite row {row}: participants present without match ID")
+            continue
+        require(isinstance(match_id, str) and MATCH_ID.fullmatch(match_id) is not None, f"Partite!I{row}: invalid match ID")
+        phase = "first" if row < 39 else "second" if row < 65 else "finals"
+        require(match_id[0] in {"first": "XY", "second": "P", "finals": "QSF"}[phase], f"{match_id}: phase/ID mismatch")
+        pool = match_id[0] if phase == "first" else ("high" if row < 48 else "middle" if row < 56 else "low") if phase == "second" else None
+        score = score_at(row)
+        state = "none" if all(value is None for value in score.values()) else "complete" if all(value is not None for value in score.values()) else "partial"
+        matches.append({"id": match_id, "phase": phase, "pool": pool,
+                        "stage": numeric(games.get(row, 2), f"B{row}", integer=True),
+                        "city": string(games.get(row, 3), f"C{row}", optional=True),
+                        "date": local_date(games.get(row, 4), f"D{row}"),
+                        "start": local_time(games.get(row, 5), f"E{row}"), "end": local_time(games.get(row, 7), f"G{row}"),
+                        "field": string(games.get(row, 8), f"H{row}", optional=True),
+                        "a": participant(games.get(row, 10), games.get(row, 11), f"J{row}"),
+                        "b": participant(games.get(row, 16), games.get(row, 15), f"P{row}"),
+                        "score": score, "resultState": state, "provenance": provenance(names[1], f"B{row}:U{row}")})
+
+    pools = []
+    for pool_id, label, rows, offset, phase in (("X", "Girone X", range(21, 27), 2, "first"),
+                                             ("Y", "Girone Y", range(29, 35), 2, "first"),
+                                             ("high", "Pool alto", range(21, 25), 8, "second"),
+                                             ("middle", "Pool medio", range(27, 31), 8, "second"),
+                                             ("low", "Pool basso", range(33, 37), 8, "second")):
+        entries = []
+        for row in rows:
+            entries.append({**participant(standings.get(row, offset), standings.get(row, offset + 1), f"pool {pool_id} row {row}"),
+                            "points": numeric(standings.get(row, offset + 2), f"pool {pool_id} points"),
+                            "goalsFor": numeric(standings.get(row, offset + 3), "goals for", integer=True),
+                            "goalsAgainst": numeric(standings.get(row, offset + 4), "goals against", integer=True),
+                            "provenance": provenance(names[0], f"{openpyxl.utils.get_column_letter(offset)}{row}:{openpyxl.utils.get_column_letter(offset + 4)}{row}")})
+        pools.append({"id": pool_id, "name": label, "phase": phase, "entries": entries,
+                      "provenance": provenance(names[0], f"{openpyxl.utils.get_column_letter(offset)}{rows.start}:{openpyxl.utils.get_column_letter(offset + 4)}{rows.stop - 1}")})
+    final_classification = []
+    for row in range(20, 32):
+        require(standings.get(row, 14) == row - 19, f"Final position N{row} changed")
+        name = standings.get(row, 15)
+        if name is not None:
+            require(name in by_name, f"O{row}: unknown final team")
+            final_classification.append({"position": row - 19, "teamId": by_name[name], "provenance": provenance(names[0], f"N{row}:O{row}")})
+
+    sotg = []
+    for row in range(2, cached[names[2]].max_row + 1):
+        match_id = spirit.get(row, 1)
+        if match_id is None:
+            require(all(spirit.get(row, col) is None for col in (3, 4, 7, 8, 9, 10, 11, 12, 13)), f"SOTG row {row}: evaluation without match ID")
+            continue
+        evaluating, evaluated = spirit.get(row, 3), spirit.get(row, 4)
+        require(evaluating is None or evaluating in by_name, f"SOTG row {row}: unknown evaluating team")
+        require(evaluated is None or evaluated in by_name, f"SOTG row {row}: unknown evaluated team")
+        categories = [numeric(spirit.get(row, col), f"SOTG row {row} category", integer=True) for col in range(7, 12)]
+        total = numeric(spirit.get(row, 12), f"SOTG row {row} total")
+        comment = string(spirit.get(row, 13), f"SOTG row {row} comment", optional=True)
+        if any(value is not None for value in [*categories, total, comment]):
+            require(evaluating is not None and evaluated is not None, f"SOTG row {row}: published evaluation needs both teams")
+        if total is not None and all(value is not None for value in categories):
+            require(sum(categories) == total, f"SOTG row {row}: total disagrees with category sum")
+        sotg.append({"matchId": match_id, "date": local_date(spirit.get(row, 2), f"SOTG B{row}"),
+                     "evaluatingTeamId": by_name.get(evaluating), "evaluatedTeamId": by_name.get(evaluated),
+                     "categories": categories, "total": total, "comment": comment,
+                     "provenance": provenance(names[2], f"A{row}:M{row}")})
+    players = []
+    for row in range(3, cached[names[3]].max_row + 1):
+        values = [stats.get(row, col) for col in range(1, 17)]
+        if all(value is None for value in values):
+            continue
+        require(values[0] in by_name, f"Statistiche row {row}: unknown or missing team")
+        players.append({"teamId": by_name[values[0]], "surname": string(values[1], f"B{row}"),
+                        "givenName": string(values[2], f"C{row}"),
+                        "assists": numeric(values[13], f"N{row}", integer=True), "goals": numeric(values[14], f"O{row}", integer=True),
+                        "total": numeric(values[15], f"P{row}", integer=True),
+                        "matchSlots": [None if value is None else str(value) for value in values[3:13]],
+                        "provenance": provenance(names[3], f"A{row}:P{row}")})
+    slots = {}
+    for side in [side for match in matches for side in (match["a"], match["b"])] + [entry for pool in pools for entry in pool["entries"]]:
+        if side["slot"] not in by_slot:
+            require(side["slot"] not in slots or slots[side["slot"]] == side["teamId"], f"Conflicting resolution of slot {side['slot']}")
+            slots[side["slot"]] = side["teamId"]
+    reported = games.get(1, 4)
+    if reported is not None:
+        try:
+            reported = datetime.strptime(reported, "%d/%m/%Y %H:%M:%S").replace(tzinfo=ZoneInfo("Europe/Rome")).isoformat()
+        except (ValueError, TypeError) as exc:
+            raise ImportFailure("Partite!D1: source timestamp format changed") from exc
+    rules = [{"text": str(standings.get(row, col)).strip(), "provenance": provenance(names[0], f"{openpyxl.utils.get_column_letter(col)}{row}")}
+             for col in (2, 14) for row in range(39, cached[names[0]].max_row + 1) if standings.get(row, col) is not None]
+    data = {"schemaVersion": 1, "sourceUrl": SOURCE_URL, "sourceMode": source_mode, "sourceReportedAt": reported,
+            "fetchedAt": fetched_at, "workbookSha256": hashlib.sha256(payload).hexdigest(), "teams": teams, "matches": matches,
+            "pools": pools, "phaseSlots": [{"slot": slot, "teamId": team_id} for slot, team_id in slots.items()],
+            "carryovers": carryovers, "finalClassification": final_classification,
+            "sotgCategories": [spirit.get(1, col) for col in range(7, 12)], "sotg": sotg, "players": players, "rules": rules,
+            "availability": {"sotg": any(any(value is not None for value in [*evaluation["categories"], evaluation["total"], evaluation["comment"]]) for evaluation in sotg),
+                             "teamPlayers": bool(players), "matchPlayers": False, "roster": False, "sotgSummary": False}}
+    validate_data(data)
+    cached.close()
+    formulas.close()
+    return data
+
+
+def validate_data(data: dict) -> None:
+    """Check JSON shape plus referential and semantic invariants once."""
+    errors = sorted(Draft7Validator(SCHEMA).iter_errors(data), key=lambda error: str(error.path))
+    require(not errors, f"JSON schema: {errors[0].message if errors else ''}")
+    for field in ("fetchedAt", "sourceReportedAt"):
+        if data[field] is not None:
+            try:
+                stamp = datetime.fromisoformat(data[field].replace("Z", "+00:00"))
+                require(stamp.utcoffset() is not None, f"{field}: timezone required")
+            except ValueError as exc:
+                raise ImportFailure(f"{field}: invalid timestamp") from exc
+    teams = {team["id"] for team in data["teams"]}
+    require(len(teams) == len(data["teams"]) and bool(teams), "Duplicate or empty teams")
+    require(len({team['name'] for team in data['teams']}) == len(teams), "Duplicate team names")
+    require(len({team['seed'] for team in data['teams']}) == len(teams), "Duplicate seeds")
+    matches = {match["id"]: match for match in data["matches"]}
+    require(len(matches) == len(data["matches"]) and bool(matches), "Duplicate or empty match IDs")
+    for match in data["matches"]:
+        if match["date"]:
+            try:
+                date.fromisoformat(match["date"])
+            except ValueError as exc:
+                raise ImportFailure(f"{match['id']}: invalid calendar date") from exc
+        score = match["score"]
+        state = "none" if score["a"] is None and score["b"] is None else "complete" if score["a"] is not None and score["b"] is not None else "partial"
+        require(match["resultState"] == state, f"{match['id']}: inconsistent result state")
+        require(state != "complete" or (match["a"]["teamId"] is not None and match["b"]["teamId"] is not None), f"{match['id']}: completed result without resolved teams")
+        require(match["a"]["teamId"] is None or match["a"]["teamId"] != match["b"]["teamId"], f"{match['id']}: team plays itself")
+    sides = [side for match in data["matches"] for side in (match["a"], match["b"])]
+    sides += [entry for pool in data["pools"] for entry in pool["entries"]] + data["phaseSlots"]
+    sides += [side for carry in data["carryovers"] for side in (carry["a"], carry["b"])]
+    require(all(side["teamId"] is None or side["teamId"] in teams for side in sides), "Unknown team reference")
+    directions = set()
+    for evaluation in data["sotg"]:
+        require(evaluation["matchId"] in matches, "SOTG references unknown match ID")
+        match = matches[evaluation["matchId"]]
+        require(evaluation["date"] == match["date"], "SOTG date disagrees with match")
+        evaluating, evaluated = evaluation["evaluatingTeamId"], evaluation["evaluatedTeamId"]
+        if evaluating is not None or evaluated is not None:
+            require(evaluating is not None and evaluated is not None and evaluating != evaluated,
+                    "SOTG evaluation requires two opposite teams")
+            require({evaluating, evaluated} == {match["a"]["teamId"], match["b"]["teamId"]}, "SOTG direction does not match participants")
+            key = (evaluation["matchId"], evaluating, evaluated)
+            require(key not in directions, "Duplicate SOTG evaluation direction")
+            directions.add(key)
+    require(all(player["teamId"] in teams for player in data["players"]), "Unknown player team")
+    require(all(entry["teamId"] in teams for entry in data["finalClassification"]), "Unknown final team")
+    require(len({entry["teamId"] for entry in data["finalClassification"]}) == len(data["finalClassification"]), "Duplicate final team")

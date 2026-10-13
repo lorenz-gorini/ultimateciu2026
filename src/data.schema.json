@@ -1,0 +1,589 @@
+{
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "sourceUrl",
+    "sourceMode",
+    "sourceReportedAt",
+    "fetchedAt",
+    "workbookSha256",
+    "teams",
+    "matches",
+    "pools",
+    "phaseSlots",
+    "carryovers",
+    "finalClassification",
+    "sotgCategories",
+    "sotg",
+    "players",
+    "rules",
+    "availability"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "sourceUrl": {
+      "const": "https://docs.google.com/spreadsheets/d/1k_xJctOAUqizJW00395YIvDwC5gDZKek2R26UpJ_HUQ/edit"
+    },
+    "sourceMode": {
+      "enum": ["live", "frozen"]
+    },
+    "sourceReportedAt": {
+      "type": ["string", "null"]
+    },
+    "fetchedAt": {
+      "type": "string"
+    },
+    "workbookSha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "teams": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "slot",
+          "name",
+          "seed",
+          "affiliation",
+          "province",
+          "pool",
+          "provenance"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "slot": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "seed": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "affiliation": {
+            "type": "string"
+          },
+          "province": {
+            "type": "string"
+          },
+          "pool": {
+            "enum": ["X", "Y"]
+          },
+          "provenance": {
+            "type": "object",
+            "required": ["sheet", "range"],
+            "additionalProperties": false,
+            "properties": {
+              "sheet": {
+                "type": "string"
+              },
+              "range": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "matches": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "phase",
+          "pool",
+          "stage",
+          "city",
+          "date",
+          "start",
+          "end",
+          "field",
+          "a",
+          "b",
+          "score",
+          "resultState",
+          "provenance"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "phase": {
+            "enum": ["first", "second", "finals"]
+          },
+          "pool": {
+            "type": ["string", "null"]
+          },
+          "stage": {
+            "type": ["integer", "null"],
+            "minimum": 0
+          },
+          "city": {
+            "type": ["string", "null"]
+          },
+          "date": {
+            "type": ["string", "null"],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "start": {
+            "type": ["string", "null"],
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+          },
+          "end": {
+            "type": ["string", "null"],
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+          },
+          "field": {
+            "type": ["string", "null"]
+          },
+          "a": {
+            "type": "object",
+            "required": ["slot", "teamId"],
+            "additionalProperties": false,
+            "properties": {
+              "slot": {
+                "type": "string"
+              },
+              "teamId": {
+                "type": ["string", "null"]
+              }
+            }
+          },
+          "b": {
+            "type": "object",
+            "required": ["slot", "teamId"],
+            "additionalProperties": false,
+            "properties": {
+              "slot": {
+                "type": "string"
+              },
+              "teamId": {
+                "type": ["string", "null"]
+              }
+            }
+          },
+          "score": {
+            "type": "object",
+            "required": ["a", "b"],
+            "additionalProperties": false,
+            "properties": {
+              "a": {
+                "type": ["integer", "null"],
+                "minimum": 0
+              },
+              "b": {
+                "type": ["integer", "null"],
+                "minimum": 0
+              }
+            }
+          },
+          "resultState": {
+            "enum": ["none", "partial", "complete"]
+          },
+          "provenance": {
+            "type": "object",
+            "required": ["sheet", "range"],
+            "additionalProperties": false,
+            "properties": {
+              "sheet": {
+                "type": "string"
+              },
+              "range": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "pools": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "phase", "entries", "provenance"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "phase": {
+            "enum": ["first", "second"]
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "slot",
+                "teamId",
+                "points",
+                "goalsFor",
+                "goalsAgainst",
+                "provenance"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "slot": {
+                  "type": "string"
+                },
+                "teamId": {
+                  "type": ["string", "null"]
+                },
+                "points": {
+                  "type": ["number", "null"],
+                  "minimum": 0
+                },
+                "goalsFor": {
+                  "type": ["integer", "null"],
+                  "minimum": 0
+                },
+                "goalsAgainst": {
+                  "type": ["integer", "null"],
+                  "minimum": 0
+                },
+                "provenance": {
+                  "type": "object",
+                  "required": ["sheet", "range"],
+                  "additionalProperties": false,
+                  "properties": {
+                    "sheet": {
+                      "type": "string"
+                    },
+                    "range": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "provenance": {
+            "type": "object",
+            "required": ["sheet", "range"],
+            "additionalProperties": false,
+            "properties": {
+              "sheet": {
+                "type": "string"
+              },
+              "range": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "phaseSlots": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["slot", "teamId"],
+        "additionalProperties": false,
+        "properties": {
+          "slot": {
+            "type": "string"
+          },
+          "teamId": {
+            "type": ["string", "null"]
+          }
+        }
+      }
+    },
+    "carryovers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["pool", "a", "b", "score", "provenance"],
+        "additionalProperties": false,
+        "properties": {
+          "pool": {
+            "type": "string"
+          },
+          "a": {
+            "type": "object",
+            "required": ["slot", "teamId"],
+            "additionalProperties": false,
+            "properties": {
+              "slot": {
+                "type": "string"
+              },
+              "teamId": {
+                "type": ["string", "null"]
+              }
+            }
+          },
+          "b": {
+            "type": "object",
+            "required": ["slot", "teamId"],
+            "additionalProperties": false,
+            "properties": {
+              "slot": {
+                "type": "string"
+              },
+              "teamId": {
+                "type": ["string", "null"]
+              }
+            }
+          },
+          "score": {
+            "type": "object",
+            "required": ["a", "b"],
+            "additionalProperties": false,
+            "properties": {
+              "a": {
+                "type": ["integer", "null"],
+                "minimum": 0
+              },
+              "b": {
+                "type": ["integer", "null"],
+                "minimum": 0
+              }
+            }
+          },
+          "provenance": {
+            "type": "object",
+            "required": ["sheet", "range"],
+            "additionalProperties": false,
+            "properties": {
+              "sheet": {
+                "type": "string"
+              },
+              "range": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "finalClassification": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["position", "teamId", "provenance"],
+        "additionalProperties": false,
+        "properties": {
+          "position": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "teamId": {
+            "type": "string"
+          },
+          "provenance": {
+            "type": "object",
+            "required": ["sheet", "range"],
+            "additionalProperties": false,
+            "properties": {
+              "sheet": {
+                "type": "string"
+              },
+              "range": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "sotgCategories": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "items": {
+        "type": "string"
+      }
+    },
+    "sotg": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "matchId",
+          "date",
+          "evaluatingTeamId",
+          "evaluatedTeamId",
+          "categories",
+          "total",
+          "comment",
+          "provenance"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "matchId": {
+            "type": "string"
+          },
+          "date": {
+            "type": ["string", "null"]
+          },
+          "evaluatingTeamId": {
+            "type": ["string", "null"]
+          },
+          "evaluatedTeamId": {
+            "type": ["string", "null"]
+          },
+          "categories": {
+            "type": "array",
+            "minItems": 5,
+            "maxItems": 5,
+            "items": {
+              "type": ["integer", "null"],
+              "minimum": 0,
+              "maximum": 4
+            }
+          },
+          "total": {
+            "type": ["number", "null"],
+            "minimum": 0
+          },
+          "comment": {
+            "type": ["string", "null"]
+          },
+          "provenance": {
+            "type": "object",
+            "required": ["sheet", "range"],
+            "additionalProperties": false,
+            "properties": {
+              "sheet": {
+                "type": "string"
+              },
+              "range": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "players": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "teamId",
+          "surname",
+          "givenName",
+          "assists",
+          "goals",
+          "total",
+          "matchSlots",
+          "provenance"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "teamId": {
+            "type": "string"
+          },
+          "surname": {
+            "type": "string"
+          },
+          "givenName": {
+            "type": "string"
+          },
+          "assists": {
+            "type": ["integer", "null"],
+            "minimum": 0
+          },
+          "goals": {
+            "type": ["integer", "null"],
+            "minimum": 0
+          },
+          "total": {
+            "type": ["integer", "null"],
+            "minimum": 0
+          },
+          "matchSlots": {
+            "type": "array",
+            "minItems": 10,
+            "maxItems": 10,
+            "items": {
+              "type": ["string", "null"]
+            }
+          },
+          "provenance": {
+            "type": "object",
+            "required": ["sheet", "range"],
+            "additionalProperties": false,
+            "properties": {
+              "sheet": {
+                "type": "string"
+              },
+              "range": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "rules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["text", "provenance"],
+        "additionalProperties": false,
+        "properties": {
+          "text": {
+            "type": "string"
+          },
+          "provenance": {
+            "type": "object",
+            "required": ["sheet", "range"],
+            "additionalProperties": false,
+            "properties": {
+              "sheet": {
+                "type": "string"
+              },
+              "range": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "availability": {
+      "type": "object",
+      "required": [
+        "sotg",
+        "teamPlayers",
+        "matchPlayers",
+        "roster",
+        "sotgSummary"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "sotg": {
+          "type": "boolean"
+        },
+        "teamPlayers": {
+          "type": "boolean"
+        },
+        "matchPlayers": {
+          "type": "boolean"
+        },
+        "roster": {
+          "type": "boolean"
+        },
+        "sotgSummary": {
+          "type": "boolean"
+        }
+      }
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}
