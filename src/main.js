@@ -67,9 +67,10 @@ function ageText() {
 
 function renderFreshness() {
   const restoreFocus = document.activeElement?.id === "refresh";
-  freshness.innerHTML = `<div><p class="download">${data ? `Download: <strong>${escape(timestamp(data.fetchedAt))}</strong> · ${ageText()}` : "Nessun download disponibile"}</p>
-    <p class="muted">Aggiornamento dichiarato nel foglio: ${escape(timestamp(data?.sourceReportedAt))}${data?.sourceMode === "frozen" ? " · Copia di verifica locale" : ""}</p>
-    <p class="refresh-help">Aggiorna legge l’ultima copia pubblicata. Il foglio viene importato separatamente; gli aggiornamenti possono arrivare in ritardo.</p>
+  const restoreInfo = freshness.querySelector(".refresh-info")?.open;
+  freshness.innerHTML = `<div class="freshness-meta"><p class="download">${data ? `Download: <strong>${escape(timestamp(data.fetchedAt))}</strong> <span class="age">· ${ageText()}</span>` : "Nessun download disponibile"}</p>
+    <p class="source-updated">Foglio: <strong>${escape(timestamp(data?.sourceReportedAt))}</strong>${data?.sourceMode === "frozen" ? " · Copia locale" : ""}</p>
+    <details class="refresh-info" ${restoreInfo ? "open" : ""}><summary>Come funziona Aggiorna</summary><p>Aggiorna legge l’ultima copia pubblicata. Il foglio viene importato separatamente; gli aggiornamenti possono arrivare in ritardo.</p></details>
     ${error ? `<p role="alert" class="error">Aggiornamento non riuscito. ${data ? `Dati conservati (${ageText()}).` : "Riprova con Aggiorna."} <span class="muted">${escape(error)}</span></p>` : ""}</div>
     <button id="refresh" ${busy ? "disabled" : ""}>${busy ? "Aggiornamento…" : "Aggiorna"}</button>`;
   document.querySelector("#refresh").addEventListener("click", refresh);
