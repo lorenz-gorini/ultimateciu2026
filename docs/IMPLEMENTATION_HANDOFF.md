@@ -1,6 +1,6 @@
 # Ultimate CIU 2026 implementation handoff
 
-Prepared 13 October 2026; local implementation and validation completed on the same date. Lorenzo subsequently inspected the preview and authorized repository creation, the checkpoint/push, and GitHub Pages publication. API authentication is now complete, and publication is in progress. The original local-only implementation brief below records the initial scope; the later publication authorization supersedes its stop-before-publication instruction.
+Prepared 13 October 2026; local implementation, validation and authorized publication completed on the same date. Live website: [CIU Mixed Serie A 2026](https://lorenz-gorini.github.io/ultimateciu2026/). Lorenzo inspected the preview and authorized repository creation, the checkpoint/push, and GitHub Pages publication. The original local-only implementation brief below records the initial scope; the later publication authorization supersedes its stop-before-publication instruction. The publication entry at the end records access scope and verification.
 
 ## Start here
 
@@ -8,7 +8,7 @@ Work in `/Users/lorenzogorini/Library/CloudStorage/OneDrive-UniversitàCommercia
 
 Read `AGENTS.md`, `README.md`, and this handoff. Implement and verify locally, prepare the GitHub Pages workflow, and stop with a reviewable result for Lorenzo. Do not publish during this first implementation pass. Do not modify the professional homepage repository, its DNS, or its deployment settings. Do not edit the source spreadsheet or submit its SOTG forms.
 
-The project folder was initially empty. The local implementation ended without a Git repository; the authorized publication pass has now initialized the project's own repository on `main`. The application and dependencies exist locally, and workflows are prepared but have not run on GitHub. GitHub CLI `gh` was unavailable in the preparation shell; a temporary official CLI is now authenticated for publication. API and SSH both verified `lorenz-gorini`.
+The project folder was initially empty. The local implementation ended without a Git repository; the authorized publication pass initialized the project's own repository on `main`, created its separate GitHub remote and pushed the implementation. The live-import/test/build/deploy workflow has succeeded on GitHub. GitHub CLI `gh` was unavailable in the preparation shell; a temporary official CLI is now authenticated. API and SSH both verified `lorenz-gorini`.
 
 ## Product requirements
 
@@ -145,7 +145,7 @@ No user decision was needed for local implementation. Before publication verify 
 
 ## Implementation and verification — 13 October 2026
 
-**Status: ready for separate review; not published.** Starting state had no Git repository, branch or commit. The implementation is a small Vite/JavaScript static frontend with a Python adapter; React/TypeScript were unnecessary for this scope. No repository, remote, commit or push was created. No changes were made outside this project to the professional homepage, DNS/settings, workbook or evaluation forms.
+**Local-pass checkpoint: ready for review, initially unpublished.** Starting state had no Git repository, branch or commit. The implementation is a small Vite/JavaScript static frontend with a Python adapter; React/TypeScript were unnecessary for this scope. This initial local pass created no repository, remote, commit or push. The subsequent authorized publication is recorded separately below. The professional homepage, DNS/settings, workbook and evaluation forms were untouched.
 
 ### Completed behavior and source decisions
 
@@ -247,10 +247,30 @@ An initial repository baseline must also preserve the existing unchanged `AGENTS
 
 **Authorization:** Lorenzo requested creation of the separate GitHub repository, pushing this implementation and publishing it through GitHub Pages. This authorizes the previously proposed scoped checkpoint and deployment, without changing the professional homepage repository, DNS or settings.
 
-**Current state:** the separate local Git repository is initialized on `main`, and [lorenz-gorini/ultimateciu2026](https://github.com/lorenz-gorini/ultimateciu2026) has been created as a public project repository. The local `origin` is `git@github.com:lorenz-gorini/ultimateciu2026.git`. The implementation baseline is being checkpointed under the user's authorization. Lorenzo completed the official CLI/browser sign-in; API and SSH authentication both identify `lorenz-gorini`. A checksum-verified official GitHub CLI 2.102.0 is available temporarily at `/private/tmp/ciu-gh/gh_2.102.0_macOS_arm64/bin/gh`. No credential or token was written to the project or chat. Authentication was performed by Lorenzo, with the existing SSH key retained.
+**Current state: published and verified.** The separate local Git repository is on `main`, and [lorenz-gorini/ultimateciu2026](https://github.com/lorenz-gorini/ultimateciu2026) is its public remote. Local `origin`: `git@github.com:lorenz-gorini/ultimateciu2026.git`. Implementation checkpoint **`eeea1eb5785a77d0bbd750a52a6f807affdfafaa`** contains the 23 scoped baseline files, including the unchanged instructions/frozen fixture and excluding generated data/builds/credentials. It was pushed to `origin/main` under Lorenzo's authorization.
+
+Lorenzo completed the official CLI/browser sign-in; API and SSH authentication both identify `lorenz-gorini`. A checksum-verified official GitHub CLI 2.102.0 is available temporarily at `/private/tmp/ciu-gh/gh_2.102.0_macOS_arm64/bin/gh`. No credential or token was written to the project or chat. Authentication was performed by Lorenzo, with the existing SSH key retained.
 
 **Access scope:** Lorenzo explicitly limited this access to pushing this project's changes and publishing its website under his personal GitHub Pages domain. Account verification, creation/configuration of `ultimateciu2026`, its checkpoint/push, workflow execution and Pages deployment are within scope. Read-only inspection confirmed the existing `lorenz-gorini.github.io` homepage has no custom domain (`cname: null`), uses the `master` branch and the legacy Pages build type. Its repository, content, DNS and deployment settings must not be changed. No organization, gist, issue, pull-request or other repository writes are authorized. The CLI credential is account-wide and persistent; the observed OAuth scopes are `gist`, `read:org`, `repo` and `workflow`. The gist/organization scopes have not been used. Technical capability does not grant permission to use the credential for unrelated work.
 
 The fresh public workbook was imported again before publication; 12 teams, 56 fixtures and six carry-overs still validate. All ten frontend tests and the live-data production build passed again. The 17 parser tests from the implementation pass remain applicable because importer code and the frozen fixture are unchanged.
 
-**Remaining publication work:** push the scoped checkpoint, configure this repository's Pages/environment and enable `PAGES_ENABLED`, then observe the workflow and verify `https://lorenz-gorini.github.io/ultimateciu2026/`. The publication gate remains disabled pending those steps. Local preview remains working.
+### Exact changes made with GitHub access
+
+1. Created the public repository `lorenz-gorini/ultimateciu2026` with its project description, connected only this local project, and pushed the authorized `main` checkpoint. No other repository received a push.
+2. Configured this repository's Pages build type as `workflow`, with no custom domain. The returned URL is `https://lorenz-gorini.github.io/ultimateciu2026/`; HTTPS is enforced.
+3. Created/configured its `github-pages` environment with custom deployment branch policies and the single allowed branch `main`. No reviewers/secrets/accounts were added.
+4. Set only this repository's `PAGES_ENABLED` variable to `true`, enabling the prepared push/manual/scheduled deployments, and manually dispatched `pages.yml` on `main`. Its requested 15-minute UTC refresh cadence is active but remains best effort. Scheduled jobs use their own repository-scoped GitHub Actions token; no CLI credential is shipped in the website or workflow artifact.
+5. Read the account identity/OAuth scope header and the existing homepage's Pages metadata to establish identity/domain behavior, then re-read the homepage metadata after deployment. Its `cname: null`, legacy build type and `master` source remained identical. No homepage content, DNS, Pages configuration, organization, gist, issue or pull-request writes were made.
+
+### Hosted verification and outcome
+
+The initial push run was intentionally skipped while `PAGES_ENABLED` was absent. After configuration, [manual deployment run 38390133808](https://github.com/lorenz-gorini/ultimateciu2026/actions/runs/38390133808) succeeded for checkpoint `eeea1eb`: dependency installation, all 17 parser and 10 frontend tests, anonymous live workbook import, production build, Pages artifact upload and deployment all passed. Deployment completed **13 October 2026 at 13:27 Europe/Rome**.
+
+The public HTML and JSON returned successful HTTP responses. The published JSON passed the shared validator: 12 teams, 56 fixtures, six carry-overs, `sourceMode: live`, download timestamp **13 October 2026 at 13:26:36 Europe/Rome** (`2026-10-13T11:26:36.822502+00:00`) and the unchanged source-reported timestamp of 11 October at 16:15:23. Published browser checks confirmed all 56 fixtures, BFD Redshot search returning five matches, X_1 detail reload at the project subpath, honest SOTG empty state, successful “Aggiorna” with no error and zero console errors. [Published screenshot](../work/verification/published-desktop.jpg) is local ignored evidence.
+
+A final documentation-only checkpoint records these deployment/access facts in `README.md` and this handoff. Its commit uses `[skip ci]` because it changes no runtime/static site inputs; the tested/deployed application remains checkpoint `eeea1eb`. The directive skips only that push's workflow, not future scheduled/manual refreshes.
+
+**Remaining limits:** source roster/player-match mapping, initial zero standings and empty real scores/SOTG remain as documented above. Hosted execution is now verified; no publication blocker remains. The local preview continues to work.
+
+**Next owner/action:** Lorenzo can open/share the live website; no further setup is required. Revisit/disable the scheduled refresh after the championship. Future unrelated GitHub operations require their own authorization; the persistent CLI sign-in does not expand this project's approved scope.

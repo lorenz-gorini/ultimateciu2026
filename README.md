@@ -2,7 +2,7 @@
 
 A read-only, mobile-friendly Italian viewer for CIU Mixed Serie A 2026: fixtures/results, searchable team pages, pools and final progression, with Spirit of the Game (SOTG) evaluations and team player totals when published.
 
-Source repository: [lorenz-gorini/ultimateciu2026](https://github.com/lorenz-gorini/ultimateciu2026).
+Website: [CIU Mixed Serie A 2026](https://lorenz-gorini.github.io/ultimateciu2026/). Source repository: [lorenz-gorini/ultimateciu2026](https://github.com/lorenz-gorini/ultimateciu2026).
 
 ## Implementation entry point
 
@@ -50,9 +50,9 @@ Vite builds a static site at `/ultimateciu2026/`. Python/openpyxl is the single 
 
 “Aggiorna” re-fetches the served JSON with caching disabled. It preserves the current team and filters, retains the last validated data on network/schema failure, and shows both download age and the source-reported update timestamp. The browser also polls every 90 seconds while visible and refreshes when the tab becomes visible. Validated data is cached in localStorage when available, so a previously loaded browser can recover its copy after a failed load. A first visit without working JSON has a retry state, not an empty competition. Browser refresh cannot execute the importer or fetch newer workbook data by itself.
 
-The prepared workflows share one verification/build procedure. Pages refresh runs on `main` pushes, manual dispatch, and the requested UTC cadence `7,22,37,52 * * * *`. **Deployment is disabled unless the repository variable `PAGES_ENABLED` is explicitly set to `true`.** A failed import or test prevents a new artifact from deploying, leaving the last successful deployment in place. JSON is carried in the Pages artifact; no automated data commits or frontend credentials are used.
+The workflows share one verification/build procedure. Pages refresh runs on `main` pushes, manual dispatch, and the requested UTC cadence `7,22,37,52 * * * *`. **`PAGES_ENABLED` is currently `true`; set it to `false` to stop deployments.** A failed import or test prevents a new artifact from deploying, leaving the last successful deployment in place. JSON is carried in the Pages artifact; no automated data commits or frontend credentials are used.
 
-Publication remains a separate authorized step: verify the owner and project-site URL, create this project’s repository, select GitHub Actions as the Pages source, configure the `github-pages` environment, then enable the repository variable. To request a source update afterwards: open **Actions → Refresh data and deploy Pages → Run workflow** on `main`, wait for success, then use “Aggiorna”. Scheduling is best effort, not a 15-minute guarantee; revisit/disable it after the competition. See the [handoff](docs/IMPLEMENTATION_HANDOFF.md) for verification evidence and limits.
+The site was published on 13 October 2026 from its separate public project repository. Pages uses GitHub Actions, HTTPS is enforced, and the `github-pages` environment allows deployments only from `main`. The professional homepage remains unchanged. To request a source update: open **Actions → Refresh data and deploy Pages → Run workflow** on `main`, wait for success, then use “Aggiorna”. Scheduling is best effort, not a 15-minute guarantee; revisit/disable it after the competition. See the [handoff](docs/IMPLEMENTATION_HANDOFF.md) for verification evidence and limits.
 
 ## Project map
 
@@ -62,6 +62,6 @@ Publication remains a separate authorized step: verify the owner and project-sit
 - `.github/workflows/`: shared verification and gated Pages refresh/deployment.
 - `public/data.json`, `dist/`, `work/`: generated local data, builds and verification evidence; excluded from Git.
 
-No Git repository, remote, commit, push or deployment was created during local implementation. The frozen source is preserved. The professional homepage, its DNS/settings, the organizer’s workbook and SOTG forms were untouched.
+The frozen source is preserved. The professional homepage, its DNS/settings, the organizer’s workbook and SOTG forms were untouched.
 
 Lorenzo authorized repository creation, the Git checkpoint/push, and GitHub Pages publication on 13 October 2026 after inspecting the local preview. GitHub API and SSH authentication both identify `lorenz-gorini`. This authorization covers only this project and its publication at `/ultimateciu2026/`; the professional homepage, DNS and other repositories remain outside the write scope. Current deployment status is maintained in the handoff.
