@@ -10,17 +10,38 @@ import re
 from datetime import date, datetime, time
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qs, urlsplit
 from zoneinfo import ZoneInfo
 
 import openpyxl
 from jsonschema import Draft7Validator
 
-SOURCE_URL = "https://docs.google.com/spreadsheets/d/1k_xJctOAUqizJW00395YIvDwC5gDZKek2R26UpJ_HUQ/edit"
-EXPORT_URL = SOURCE_URL.replace("/edit", "/export?format=xlsx")
 ROOT = Path(__file__).resolve().parents[1]
+DIVISIONS = json.loads((ROOT / "src/divisions.json").read_text())
 SCHEMA = json.loads((ROOT / "src/data.schema.json").read_text())
-MATCH_ID = re.compile(r"(?:[XYP]_\d+|[QSF]\d+)$")
-SLOT = re.compile(r"(?:[XY][1-6]|[1-6][XY]|(?:[1-9]|1[0-2])P|[WL][QS]\d+)$")
+MATCH_ID = re.compile(r"(?:[XYZP]_\d+|[QSF]\d+)$")
+SLOT = re.compile(r"(?:[XYZ][1-6]|[1-6][XYZ]|(?:[1-9]|1[0-2])P|[WL][QS]\d+)$")
+
+# Explicit inspected layouts share the same parser; no row/name inference or fuzzy joins.
+LAYOUTS = {
+    "mixed-a": {
+        "team_rows": range(5, 17), "initial": [("X", range(21, 27)), ("Y", range(29, 35))],
+        "second": [("high", "POOL ALTO", range(21, 25), range(41, 47)),
+                   ("middle", "POOL MEDIO", range(27, 31), range(49, 55)),
+                   ("low", "POOL BASSO", range(33, 37), range(57, 63))],
+        "standings_header": 19, "game_headers": (4, 21, 40, 48, 56, 66),
+        "extra_game_headers": (), "sections": {"J3": "PRIMA FASE A GIRONI", "J39": "SECONDA FASE A GIRONI", "J65": "FASE FINALE"},
+        "second_start": 39, "final_start": 65, "final_rows": range(20, 32), "rules_start": 39,
+    },
+    "mixed-b": {
+        "team_rows": range(5, 23), "initial": [("X", range(27, 33)), ("Y", range(35, 41)), ("Z", range(43, 49))],
+        "second": [(f"power-{rank}", f"POWER POOL {3 * rank - 2}°-{3 * rank}° POSTO",
+                    range(22 + 5 * rank, 25 + 5 * rank), range(53 + 5 * rank, 56 + 5 * rank)) for rank in range(1, 7)],
+        "standings_header": 25, "game_headers": (4, 21, 38, 57),
+        "extra_game_headers": (62, 67, 72, 77, 82), "sections": {"J3": "PRIMA FASE A GIRONI", "J56": "SECONDA FASE A GIRONI"},
+        "second_start": 56, "final_start": None, "final_rows": range(26, 44), "rules_start": 57,
+    },
+}
 
 
 class ImportFailure(ValueError):
@@ -55,6 +76,15 @@ class Sheet:
         cell = self.cached[coordinate]
         require(self.get(cell.row, cell.column) == expected,
                 f"{self.cached.title}!{coordinate}: expected header {expected!r}")
+
+    def hyperlink(self, row: int, col: int) -> str | None:
+        """Preserve the actual hyperlink target, including merged-cell anchors."""
+        row, col = self.anchors.get((row, col), (row, col))
+        cell = self.cached.cell(row, col)
+        if cell.hyperlink is None:
+            require(self.get(row, col) is None, f"{self.cached.title}!{cell.coordinate}: link label without hyperlink")
+            return None
+        return string(cell.hyperlink.target, f"{self.cached.title}!{cell.coordinate}: hyperlink")
 
 
 def provenance(sheet: str, cell_range: str) -> dict:
@@ -94,8 +124,30 @@ def local_time(value: Any, location: str) -> str | None:
     return value
 
 
-def parse_workbook(payload: bytes, fetched_at: str, source_mode: str = "live") -> dict:
+def form_team_match(url: str | None, match_id: str, evaluating: str | None,
+                    evaluated: str | None) -> bool | None:
+    """Validate the organizer's exact Google Form link; flag wrong team prefills."""
+    if url is None:
+        return None
+    try:
+        parsed = urlsplit(url)
+    except ValueError as exc:
+        raise ImportFailure(f"{match_id}: invalid form URL") from exc
+    require(parsed.scheme == "https" and parsed.netloc == "docs.google.com"
+            and re.fullmatch(r"/forms/d/e/[A-Za-z0-9_-]+/viewform", parsed.path) is not None
+            and not parsed.fragment, f"{match_id}: expected an HTTPS Google Form view URL")
+    query = parse_qs(parsed.query, keep_blank_values=True)
+    require(query.get("entry.1623410474") == [match_id], f"{match_id}: form link references a different match")
+    if evaluating is None or evaluated is None:
+        return None
+    return (query.get("entry.1084977692") == [evaluating]
+            and query.get("entry.839559032") == [evaluated])
+
+
+def parse_workbook(payload: bytes, fetched_at: str, source_mode: str = "live", *, division_id: str = "mixed-a") -> dict:
     """Normalize the inspected four-sheet contract and validate before output."""
+    require(division_id in DIVISIONS, f"Unknown division {division_id!r}")
+    division, layout = DIVISIONS[division_id], LAYOUTS[division_id]
     try:
         cached = openpyxl.load_workbook(io.BytesIO(payload), data_only=True)
         formulas = openpyxl.load_workbook(io.BytesIO(payload), data_only=False)
@@ -105,17 +157,26 @@ def parse_workbook(payload: bytes, fetched_at: str, source_mode: str = "live") -
     require(all(name in cached.sheetnames for name in names), "Missing required workbook sheets")
     sheets = {name: Sheet(cached[name], formulas[name]) for name in names}
     standings, games, spirit, stats = (sheets[name] for name in names)
-    for coordinate, expected in {"B4": "Seed", "C4": "Squadra", "D4": "ASD/SSD", "J4": "Provincia",
-                                 "B19": "PRIMA FASE A GIRONI", "H19": "SECONDA FASE A GIRONI",
-                                 "N19": "CLASSIFICA FINALE", "B20": "GIRONE X", "B28": "GIRONE Y",
-                                 "H20": "POOL ALTO", "H26": "POOL MEDIO", "H32": "POOL BASSO"}.items():
+    for coordinate, expected in {"B3": f"CAMPIONATI ITALIANI ULTIMATE 2026 - {division['label'].upper()}",
+                                 "B4": "Seed", "C4": "Squadra", "D4": "ASD/SSD", "J4": "Provincia",
+                                 f"B{layout['standings_header']}": "PRIMA FASE A GIRONI",
+                                 f"H{layout['standings_header']}": "SECONDA FASE A GIRONI",
+                                 f"N{layout['standings_header']}": "CLASSIFICA FINALE"}.items():
         standings.header(coordinate, expected)
-    for row in (4, 21, 40, 48, 56, 66):
+    for pool, rows in layout["initial"]:
+        standings.header(f"B{rows.start - 1}", f"GIRONE {pool}")
+    for _, label, rows, _ in layout["second"]:
+        standings.header(f"H{rows.start - 1}", label)
+    for row in layout["game_headers"]:
         for col, expected in {"B": "TAPPA", "C": "LUOGO", "D": "DATA", "E": "ORARIO", "H": "CAMPO", "J": "PARTITE", "R": "SOTG"}.items():
             games.header(f"{col}{row}", expected)
-    for coordinate, expected in {"J3": "PRIMA FASE A GIRONI", "J39": "SECONDA FASE A GIRONI", "J65": "FASE FINALE"}.items():
+    for row in layout["extra_game_headers"]:
+        for col, expected in {"E": "ORARIO", "H": "CAMPO", "J": "PARTITE", "R": "SOTG"}.items():
+            games.header(f"{col}{row}", expected)
+    for coordinate, expected in layout["sections"].items():
         games.header(coordinate, expected)
     for coordinate, expected in {"A1": "PARTITA", "B1": "DATA", "C1": "SQUADRA VALUTANTE", "D1": "SQUADRA VALUTATA",
+                                 "E1": "LINK",
                                  "G1": "Conoscenza e applicazione delle regole", "H1": "Falli e contatto fisico",
                                  "I1": "Comportamento leale e corretto", "J1": "Atteggiamento positivo e autocontrollo",
                                  "K1": "Comunicazione", "L1": "TOTALE", "M1": "COMMENTO"}.items():
@@ -128,14 +189,14 @@ def parse_workbook(payload: bytes, fetched_at: str, source_mode: str = "live") -
 
     # Initial slots are explicit identities, distinct from rank qualifiers (1X).
     name_slots = {}
-    for pool, rows in (("X", range(21, 27)), ("Y", range(29, 35))):
+    for pool, rows in layout["initial"]:
         for row in rows:
             slot, name = standings.get(row, 2), standings.get(row, 3)
             require(isinstance(slot, str) and re.fullmatch(f"{pool}[1-6]", slot), f"Initial pool row {row}: invalid slot")
             require(name not in name_slots and slot not in name_slots.values(), "Initial team-name/slot collision")
             name_slots[string(name, f"C{row}")] = slot
     teams = []
-    for row in range(5, 17):
+    for row in layout["team_rows"]:
         name = string(standings.get(row, 3), f"C{row}")
         require(name in name_slots, f"Team {name!r} absent from initial slots")
         slot = name_slots[name]
@@ -160,13 +221,16 @@ def parse_workbook(payload: bytes, fetched_at: str, source_mode: str = "live") -
         return {"a": numeric(games.get(row, 12), f"L{row}", integer=True),
                 "b": numeric(games.get(row, 14), f"N{row}", integer=True)}
 
+    second_pool_by_row = {row: pool for pool, _, _, rows in layout["second"] for row in rows}
+    initial_pool_ids = "".join(pool for pool, _ in layout["initial"])
     matches, carryovers = [], []
     for row in range(5, cached[names[1]].max_row + 1):
         match_id, marker = games.get(row, 9), games.get(row, 17)
         if marker is not None:
             require(marker == "ereditata" and match_id is None, f"Partite!Q{row}: unknown carry-over/status marker")
-            require(40 < row < 63, "Carry-over outside second phase")
-            carryovers.append({"pool": "high" if row < 48 else "middle" if row < 56 else "low",
+            pool = second_pool_by_row.get(row)
+            require(pool is not None, "Carry-over outside second phase")
+            carryovers.append({"pool": pool,
                                "a": participant(games.get(row, 10), games.get(row, 11), f"J{row}"),
                                "b": participant(games.get(row, 16), games.get(row, 15), f"P{row}"),
                                "score": score_at(row), "provenance": provenance(names[1], f"J{row}:Q{row}")})
@@ -176,9 +240,14 @@ def parse_workbook(payload: bytes, fetched_at: str, source_mode: str = "live") -
                     f"Partite row {row}: participants present without match ID")
             continue
         require(isinstance(match_id, str) and MATCH_ID.fullmatch(match_id) is not None, f"Partite!I{row}: invalid match ID")
-        phase = "first" if row < 39 else "second" if row < 65 else "finals"
-        require(match_id[0] in {"first": "XY", "second": "P", "finals": "QSF"}[phase], f"{match_id}: phase/ID mismatch")
-        pool = match_id[0] if phase == "first" else ("high" if row < 48 else "middle" if row < 56 else "low") if phase == "second" else None
+        if row < layout["second_start"]:
+            phase, pool = "first", match_id[0]
+        elif layout["final_start"] is not None and row >= layout["final_start"]:
+            phase, pool = "finals", None
+        else:
+            phase, pool = "second", second_pool_by_row.get(row)
+        require(match_id[0] in {"first": initial_pool_ids, "second": "P", "finals": "QSF"}[phase], f"{match_id}: phase/ID mismatch")
+        require(phase != "second" or pool is not None, f"{match_id}: fixture outside a verified second-phase block")
         score = score_at(row)
         state = "none" if all(value is None for value in score.values()) else "complete" if all(value is not None for value in score.values()) else "partial"
         matches.append({"id": match_id, "phase": phase, "pool": pool,
@@ -192,11 +261,9 @@ def parse_workbook(payload: bytes, fetched_at: str, source_mode: str = "live") -
                         "score": score, "resultState": state, "provenance": provenance(names[1], f"B{row}:U{row}")})
 
     pools = []
-    for pool_id, label, rows, offset, phase in (("X", "Girone X", range(21, 27), 2, "first"),
-                                             ("Y", "Girone Y", range(29, 35), 2, "first"),
-                                             ("high", "Pool alto", range(21, 25), 8, "second"),
-                                             ("middle", "Pool medio", range(27, 31), 8, "second"),
-                                             ("low", "Pool basso", range(33, 37), 8, "second")):
+    pool_specs = [(pool, f"Girone {pool}", rows, 2, "first") for pool, rows in layout["initial"]]
+    pool_specs += [(pool, label.capitalize(), rows, 8, "second") for pool, label, rows, _ in layout["second"]]
+    for pool_id, label, rows, offset, phase in pool_specs:
         entries = []
         for row in rows:
             entries.append({**participant(standings.get(row, offset), standings.get(row, offset + 1), f"pool {pool_id} row {row}"),
@@ -207,18 +274,19 @@ def parse_workbook(payload: bytes, fetched_at: str, source_mode: str = "live") -
         pools.append({"id": pool_id, "name": label, "phase": phase, "entries": entries,
                       "provenance": provenance(names[0], f"{openpyxl.utils.get_column_letter(offset)}{rows.start}:{openpyxl.utils.get_column_letter(offset + 4)}{rows.stop - 1}")})
     final_classification = []
-    for row in range(20, 32):
-        require(standings.get(row, 14) == row - 19, f"Final position N{row} changed")
+    for row in layout["final_rows"]:
+        position = row - layout["final_rows"].start + 1
+        require(standings.get(row, 14) == position, f"Final position N{row} changed")
         name = standings.get(row, 15)
         if name is not None:
             require(name in by_name, f"O{row}: unknown final team")
-            final_classification.append({"position": row - 19, "teamId": by_name[name], "provenance": provenance(names[0], f"N{row}:O{row}")})
+            final_classification.append({"position": position, "teamId": by_name[name], "provenance": provenance(names[0], f"N{row}:O{row}")})
 
     sotg = []
     for row in range(2, cached[names[2]].max_row + 1):
         match_id = spirit.get(row, 1)
         if match_id is None:
-            require(all(spirit.get(row, col) is None for col in (3, 4, 7, 8, 9, 10, 11, 12, 13)), f"SOTG row {row}: evaluation without match ID")
+            require(all(spirit.get(row, col) is None for col in (3, 4, 5, 7, 8, 9, 10, 11, 12, 13)), f"SOTG row {row}: evaluation without match ID")
             continue
         evaluating, evaluated = spirit.get(row, 3), spirit.get(row, 4)
         require(evaluating is None or evaluating in by_name, f"SOTG row {row}: unknown evaluating team")
@@ -230,9 +298,12 @@ def parse_workbook(payload: bytes, fetched_at: str, source_mode: str = "live") -
             require(evaluating is not None and evaluated is not None, f"SOTG row {row}: published evaluation needs both teams")
         if total is not None and all(value is not None for value in categories):
             require(sum(categories) == total, f"SOTG row {row}: total disagrees with category sum")
+        form_url = spirit.hyperlink(row, 5)
         sotg.append({"matchId": match_id, "date": local_date(spirit.get(row, 2), f"SOTG B{row}"),
                      "evaluatingTeamId": by_name.get(evaluating), "evaluatedTeamId": by_name.get(evaluated),
                      "categories": categories, "total": total, "comment": comment,
+                     "formUrl": form_url,
+                     "formTeamsMatch": form_team_match(form_url, match_id, evaluating, evaluated),
                      "provenance": provenance(names[2], f"A{row}:M{row}")})
     players = []
     for row in range(3, cached[names[3]].max_row + 1):
@@ -258,8 +329,8 @@ def parse_workbook(payload: bytes, fetched_at: str, source_mode: str = "live") -
         except (ValueError, TypeError) as exc:
             raise ImportFailure("Partite!D1: source timestamp format changed") from exc
     rules = [{"text": str(standings.get(row, col)).strip(), "provenance": provenance(names[0], f"{openpyxl.utils.get_column_letter(col)}{row}")}
-             for col in (2, 14) for row in range(39, cached[names[0]].max_row + 1) if standings.get(row, col) is not None]
-    data = {"schemaVersion": 1, "sourceUrl": SOURCE_URL, "sourceMode": source_mode, "sourceReportedAt": reported,
+             for col in (2, 14) for row in range(layout["rules_start"], cached[names[0]].max_row + 1) if standings.get(row, col) is not None]
+    data = {"schemaVersion": 1, "division": division_id, "sourceUrl": division["sourceUrl"], "sourceMode": source_mode, "sourceReportedAt": reported,
             "fetchedAt": fetched_at, "workbookSha256": hashlib.sha256(payload).hexdigest(), "teams": teams, "matches": matches,
             "pools": pools, "phaseSlots": [{"slot": slot, "teamId": team_id} for slot, team_id in slots.items()],
             "carryovers": carryovers, "finalClassification": final_classification,
@@ -276,6 +347,8 @@ def validate_data(data: dict) -> None:
     """Check JSON shape plus referential and semantic invariants once."""
     errors = sorted(Draft7Validator(SCHEMA).iter_errors(data), key=lambda error: str(error.path))
     require(not errors, f"JSON schema: {errors[0].message if errors else ''}")
+    division = DIVISIONS.get(data.get("division", "mixed-a"))
+    require(division is not None and data["sourceUrl"] == division["sourceUrl"], "Division/source mismatch")
     for field in ("fetchedAt", "sourceReportedAt"):
         if data[field] is not None:
             try:
@@ -305,11 +378,15 @@ def validate_data(data: dict) -> None:
     sides += [side for carry in data["carryovers"] for side in (carry["a"], carry["b"])]
     require(all(side["teamId"] is None or side["teamId"] in teams for side in sides), "Unknown team reference")
     directions = set()
+    names = {team["id"]: team["name"] for team in data["teams"]}
     for evaluation in data["sotg"]:
         require(evaluation["matchId"] in matches, "SOTG references unknown match ID")
         match = matches[evaluation["matchId"]]
         require(evaluation["date"] == match["date"], "SOTG date disagrees with match")
         evaluating, evaluated = evaluation["evaluatingTeamId"], evaluation["evaluatedTeamId"]
+        expected_form_match = form_team_match(evaluation.get("formUrl"), evaluation["matchId"],
+                                             names.get(evaluating), names.get(evaluated))
+        require(evaluation.get("formTeamsMatch") == expected_form_match, "Inconsistent form team-prefill flag")
         if evaluating is not None or evaluated is not None:
             require(evaluating is not None and evaluated is not None and evaluating != evaluated,
                     "SOTG evaluation requires two opposite teams")

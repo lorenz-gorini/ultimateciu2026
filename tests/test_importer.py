@@ -9,11 +9,12 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+from urllib.parse import parse_qs, urlsplit
 
 import openpyxl
 
-from importer.__main__ import MAX_BYTES, atomic_json, check_archive, download
-from importer.workbook import ImportFailure, parse_workbook, validate_data
+from importer.__main__ import MAX_BYTES, atomic_json, check_archive, download, main
+from importer.workbook import DIVISIONS, ImportFailure, parse_workbook, validate_data
 
 FIXTURE = Path(__file__).parent / "fixtures/source-2026-10-13.xlsx"
 # Deterministic SYNTHETIC timestamp, used only by tests, not published as a download.
@@ -56,6 +57,41 @@ class ImporterTests(unittest.TestCase):
     def test_five_first_phase_games_per_team(self) -> None:
         for team in self.data["teams"]:
             self.assertEqual(sum(match["phase"] == "first" and team["id"] in (match["a"]["teamId"], match["b"]["teamId"]) for match in self.data["matches"]), 5)
+
+    def test_source_form_links_preserve_direction_and_flag_wrong_prefills(self) -> None:
+        evaluations = self.data["sotg"]
+        self.assertEqual(sum(evaluation["formUrl"] is not None for evaluation in evaluations), 112)
+        for evaluation in evaluations:
+            query = parse_qs(urlsplit(evaluation["formUrl"]).query, keep_blank_values=True)
+            self.assertEqual(query["entry.1623410474"], [evaluation["matchId"]])
+        first = [evaluation for evaluation in evaluations if evaluation["matchId"] == "X_1"]
+        self.assertNotEqual(first[0]["formUrl"], first[1]["formUrl"])
+        self.assertTrue(all(evaluation["formTeamsMatch"] for evaluation in first))
+        second = [evaluation for evaluation in evaluations if evaluation["matchId"] == "X_2"]
+        self.assertTrue(all(evaluation["formTeamsMatch"] is False for evaluation in second))
+        final = [evaluation for evaluation in evaluations if evaluation["matchId"] == "F1"]
+        self.assertEqual(final[0]["formUrl"], final[1]["formUrl"])
+        self.assertTrue(all(evaluation["formTeamsMatch"] is None for evaluation in final))
+
+    def test_synthetic_form_link_missing_unsafe_or_wrong_match(self) -> None:
+        for url in ["javascript:alert(1)", "https://example.com/viewform", self.data["sotg"][0]["formUrl"].replace("entry.1623410474=X_1", "entry.1623410474=X_2")]:
+            data = copy.deepcopy(self.data)
+            data["sotg"][0]["formUrl"] = url
+            with self.assertRaises(ImportFailure):
+                validate_data(data)
+        book = openpyxl.load_workbook(io.BytesIO(self.payload))
+        sheet = book["Valutazioni SOTG"]
+        sheet["E2"].hyperlink = None
+        buffer = io.BytesIO()
+        book.save(buffer)
+        with self.assertRaisesRegex(ImportFailure, "link label without hyperlink"):
+            parse_workbook(buffer.getvalue(), TEST_TIME)
+        sheet["E2"] = None
+        buffer = io.BytesIO()
+        book.save(buffer)
+        book.close()
+        data = parse_workbook(buffer.getvalue(), TEST_TIME)
+        self.assertIsNone(data["sotg"][0]["formUrl"])
 
     def test_reference_fixtures_and_merges(self) -> None:
         games = {match["id"]: match for match in self.data["matches"]}
@@ -166,6 +202,70 @@ class ImporterTests(unittest.TestCase):
             output = Path(temporary) / "data.json"
             atomic_json(output, self.data)
             self.assertEqual(json.loads(output.read_text()), self.data)
+
+
+class MixedSerieBTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.payload = (FIXTURE.parent / "source-mixed-b-2026-10-15.xlsx").read_bytes()
+        cls.data = parse_workbook(cls.payload, TEST_TIME, "frozen", division_id="mixed-b")
+
+    def test_frozen_division_structure_and_references(self) -> None:
+        data = self.data
+        self.assertEqual(data["division"], "mixed-b")
+        self.assertEqual(data["sourceUrl"], DIVISIONS["mixed-b"]["sourceUrl"])
+        self.assertEqual((len(data["teams"]), len(data["matches"]), len(data["pools"])), (18, 63, 9))
+        self.assertEqual([sum(match["phase"] == phase for match in data["matches"]) for phase in ("first", "second", "finals")], [45, 18, 0])
+        self.assertEqual(data["carryovers"], [])
+        self.assertEqual(data["finalClassification"], [])
+        self.assertEqual(data["players"], [])
+        self.assertFalse(any(data["availability"].values()))
+        self.assertEqual(data["sourceReportedAt"], "2026-10-11T16:15:21+02:00")
+        self.assertEqual([(pool["id"], len(pool["entries"])) for pool in data["pools"][:3]], [("X", 6), ("Y", 6), ("Z", 6)])
+        self.assertTrue(all(len(pool["entries"]) == 3 for pool in data["pools"][3:]))
+        for team in data["teams"]:
+            self.assertEqual(sum(match["phase"] == "first" and team["id"] in (match["a"]["teamId"], match["b"]["teamId"]) for match in data["matches"]), 5)
+        matches = {match["id"]: match for match in data["matches"]}
+        self.assertEqual((matches["X_1"]["a"]["teamId"], matches["X_1"]["b"]["teamId"]), ("x3", "x4"))
+        self.assertEqual((matches["Z_1"]["a"]["teamId"], matches["Z_1"]["b"]["teamId"]), ("z1", "z5"))
+        self.assertEqual(matches["P_18"]["pool"], "power-6")
+        self.assertEqual(matches["P_18"]["b"], {"slot": "6Z", "teamId": None})
+        self.assertTrue(any("Non sono previste fasi a eliminazione" in rule["text"] for rule in data["rules"]))
+
+    def test_form_links_keep_the_correct_division_and_direction(self) -> None:
+        self.assertEqual(len(self.data["sotg"]), 126)
+        for evaluation in self.data["sotg"]:
+            query = parse_qs(urlsplit(evaluation["formUrl"]).query, keep_blank_values=True)
+            self.assertEqual(query["entry.1017677778"], ["Mixed Serie B"])
+            self.assertEqual(query["entry.1623410474"], [evaluation["matchId"]])
+            self.assertIsNot(evaluation["formTeamsMatch"], False)
+
+    def test_synthetic_wrong_division_or_source_fails(self) -> None:
+        with self.assertRaisesRegex(ImportFailure, "expected header"):
+            parse_workbook(self.payload, TEST_TIME)
+        changed = copy.deepcopy(self.data)
+        changed["sourceUrl"] = DIVISIONS["mixed-a"]["sourceUrl"]
+        with self.assertRaisesRegex(ImportFailure, "Division/source mismatch"):
+            validate_data(changed)
+
+    def test_synthetic_b_header_or_removed_match_fails(self) -> None:
+        for sheet, cell, value in [("Classifiche e format", "H51", "UNKNOWN"), ("Partite", "I39", None)]:
+            book = openpyxl.load_workbook(io.BytesIO(self.payload))
+            book[sheet][cell] = value
+            buffer = io.BytesIO()
+            book.save(buffer)
+            book.close()
+            with self.subTest(cell=cell), self.assertRaises(ImportFailure):
+                parse_workbook(buffer.getvalue(), TEST_TIME, division_id="mixed-b")
+
+    def test_synthetic_second_division_failure_replaces_neither_output(self) -> None:
+        with patch("sys.argv", ["importer", "--division", "all"]), \
+                patch("importer.__main__.download", side_effect=[FIXTURE.read_bytes(), b"bad synthetic workbook"]), \
+                patch("importer.__main__.atomic_json") as write, patch("sys.stderr", io.StringIO()):
+            with self.assertRaises(SystemExit) as raised:
+                main()
+            self.assertEqual(raised.exception.code, 1)
+            write.assert_not_called()
 
 
 if __name__ == "__main__":

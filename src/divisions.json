@@ -1,0 +1,12 @@
+{
+  "mixed-a": {
+    "label": "Mixed Serie A",
+    "sourceUrl": "https://docs.google.com/spreadsheets/d/1k_xJctOAUqizJW00395YIvDwC5gDZKek2R26UpJ_HUQ/edit",
+    "dataFile": "data.json"
+  },
+  "mixed-b": {
+    "label": "Mixed Serie B",
+    "sourceUrl": "https://docs.google.com/spreadsheets/d/1ghPcgKXs1r-Dy22BBVRFrVVcB-N7WNBOfHmlNm1a1Go/edit",
+    "dataFile": "data-mixed-b.json"
+  }
+}

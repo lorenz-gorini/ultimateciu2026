@@ -1,8 +1,10 @@
 import "./style.css";
+import { DIVISIONS, DIVISION_KEY, initialDivision, cacheKey } from "./divisions.js";
 import {
   PHASES,
   STATES,
   filterMatches,
+  evaluationFormOptions,
   formatDate,
   matchState,
   normalizeSearch,
@@ -23,7 +25,9 @@ const content = document.querySelector("#content");
 const freshness = document.querySelector("#freshness-controls");
 const refreshStatus = document.querySelector("#refresh-status");
 const filters = { search: "", teamIds: [], date: "", phase: "", status: "" };
-const CACHE_KEY = "ciu2026-data-v1";
+let division = initialDivision(window.location.search, preferenceStorage());
+let divisionRevision = 0;
+const snapshots = new Map();
 let data = null;
 let error = null;
 let busy = false;
@@ -45,7 +49,7 @@ function reconcilePreferences() {
   if (!preferences) {
     const storage = preferenceStorage();
     storageAvailable = Boolean(storage);
-    preferences = readPreferences(storage, data.teams);
+    preferences = readPreferences(storage, data.teams, division);
   } else {
     preferences = normalizePreferences(preferences, data.teams);
   }
@@ -54,7 +58,53 @@ function reconcilePreferences() {
 
 function persistPreferences() {
   filters.teamIds = preferences.selected;
-  storageAvailable = savePreferences(preferenceStorage(), preferences);
+  storageAvailable = savePreferences(preferenceStorage(), preferences, division);
+}
+
+function updateDivisionHeader() {
+  const selected = DIVISIONS[division];
+  document.querySelector("#competition-title").textContent = `${selected.label} 2026`;
+  document.title = `CIU ${selected.label} 2026`;
+  document.querySelector(".brand").setAttribute("aria-label", `${document.title}, vai alle partite`);
+  document.querySelectorAll("[data-source-link]").forEach((link) => { link.href = selected.sourceUrl; });
+}
+
+function restoreDivisionData() {
+  data = snapshots.get(division) || null;
+  if (!data) {
+    try {
+      const cached = preferenceStorage()?.getItem(cacheKey(division));
+      if (cached) data = validateData(JSON.parse(cached), division);
+    } catch {
+      /* An invalid or wrong-division cache must not stop a fresh load. */
+    }
+  }
+}
+
+function changeDivision(id, { fromNavigation = false } = {}) {
+  if (id === division || !Object.hasOwn(DIVISIONS, id)) return;
+  if (data) snapshots.set(division, data);
+  division = id;
+  divisionRevision++; // A late response from the previous division must not redraw this one.
+  busy = false;
+  error = null;
+  preferences = null;
+  teamQuery = "";
+  chooserOpen = false;
+  Object.assign(filters, { search: "", teamIds: [], date: "", phase: "", status: "" });
+  refreshStatus.hidden = true;
+  try { preferenceStorage()?.setItem(DIVISION_KEY, division); } catch { /* Visit-only selection. */ }
+  if (!fromNavigation) {
+    const url = new URL(window.location.href);
+    url.searchParams.set("division", division);
+    url.hash = "/"; // A selector change starts at the chosen division's schedule.
+    window.history.replaceState(null, "", url);
+  }
+  updateDivisionHeader();
+  restoreDivisionData();
+  render({ navigation: true });
+  refresh();
+  if (!fromNavigation) document.querySelector("#division")?.focus({ preventScroll: true });
 }
 
 const escape = (value) =>
@@ -154,6 +204,12 @@ function options(values, selected) {
     .join("");
 }
 
+function divisionControl() {
+  const labels = Object.fromEntries(Object.entries(DIVISIONS)
+    .map(([id, entry]) => [id, `Divisione: ${entry.label}`]));
+  return `<label class="division-picker"><span class="visually-hidden">Divisione</span><select id="division">${options(labels, division)}</select></label>`;
+}
+
 function schedule() {
   const dates = [
     ...new Set(data.matches.map((match) => match.date).filter(Boolean)),
@@ -172,8 +228,9 @@ function schedule() {
         <fieldset id="team-options" class="team-options" ${chooserOpen ? "" : "hidden"}><legend>Seleziona una o più squadre</legend>${data.teams.map((entry) => `<label class="team-option"><input type="checkbox" id="choose-${escape(entry.id)}" value="${escape(entry.id)}" /><span>${escape(entry.name)}</span></label>`).join("")}<p id="no-team-options" class="filter-help" hidden>Nessuna squadra trovata. Gli slot si cercano senza squadre selezionate.</p><div class="picker-footer"><button type="button" id="clear-recents" class="text-button">Cancella recenti</button></div></fieldset>
       </div>
       <div class="secondary-filters">
+      ${divisionControl()}
       <label><span class="visually-hidden">Data</span><select id="date">${options({ "": "Tutte le date", ...Object.fromEntries(dates.map((date) => [date, formatDate(date, true)])) }, filters.date)}</select></label>
-      <label><span class="visually-hidden">Fase</span><select id="phase">${options({ "": "Tutte le fasi", ...PHASES }, filters.phase)}</select></label>
+      <label><span class="visually-hidden">Fase</span><select id="phase">${options({ "": "Tutte le fasi", ...Object.fromEntries(Object.entries(PHASES).filter(([phase]) => data.matches.some((match) => match.phase === phase))) }, filters.phase)}</select></label>
       <label><span class="visually-hidden">Stato</span><select id="status">${options({ "": "Tutti gli stati", ...STATES }, filters.status)}</select></label>
       <button type="button" id="reset" class="secondary">Azzera filtri</button>
       </div>
@@ -354,7 +411,7 @@ function teamPage(id) {
 }
 
 function slotMeaning(slot) {
-  const rank = slot.match(/^([1-6])([XY])$/);
+  const rank = slot.match(/^([1-6])([XYZ])$/);
   if (rank) return `${rank[1]}ª classificata del girone ${rank[2]}`;
   const phase = slot.match(/^(\d+)P$/);
   if (phase)
@@ -365,10 +422,23 @@ function slotMeaning(slot) {
   return slot;
 }
 
+function evaluationFormControl(forms) {
+  if (!forms.length) return "";
+  if (forms.length === 1) {
+    return `<a class="button-link" href="${escape(forms[0].url)}" target="_blank" rel="noopener noreferrer">Valuta ↗</a>`;
+  }
+  const links = forms.map((form) =>
+    `<a class="evaluation-form-link" href="${escape(form.url)}" target="_blank" rel="noopener noreferrer">${escape(form.label)} ↗</a>`,
+  ).join("");
+  return `<details class="evaluation-forms"><summary class="button-link">Valuta</summary>
+    <div><p>Quale squadra sta valutando?</p>${links}</div></details>`;
+}
+
 function matchPage(id) {
   const match = data.matches.find((candidate) => candidate.id === id);
   if (!match) return unknown();
   const state = matchState(match);
+  const forms = evaluationFormOptions(data, id);
   const evaluations = data.sotg.filter(
     (evaluation) =>
       evaluation.matchId === id &&
@@ -385,7 +455,9 @@ function matchPage(id) {
           `<p class="muted">${escape(side.slot)}: ${escape(slotMeaning(side.slot))}. La fonte non ha ancora indicato la squadra.</p>`,
       )
       .join("")}
-    <section><h2>Spirit of the Game <span class="muted">SOTG</span></h2><p>Valutazione dello spirito sportivo: ogni squadra valuta l’avversaria in cinque categorie.</p>
+    <section><div class="section-heading"><h2>Spirit of the Game <span class="muted">SOTG</span></h2>${evaluationFormControl(forms)}</div><p>Valutazione dello spirito sportivo: ogni squadra valuta l’avversaria in cinque categorie.</p>
+      ${forms.some((form) => form.warning) ? '<p class="form-warning">Il link originale precompila squadre diverse da quelle di questa partita. Controlla e correggi i campi squadra nel modulo prima di inviarlo.</p>' : ""}
+      ${!forms.length ? '<p class="muted">Link di valutazione non disponibile nella fonte.</p>' : ""}
       ${evaluations.length ? evaluations.map((evaluation) => `<article class="evaluation"><h3>${teamLink(evaluation.evaluatingTeamId)} valuta ${teamLink(evaluation.evaluatedTeamId)}</h3><dl>${data.sotgCategories.map((category, index) => `<div><dt>${escape(category)}</dt><dd>${shown(evaluation.categories[index])}</dd></div>`).join("")}<div class="total"><dt>Totale</dt><dd>${shown(evaluation.total)}</dd></div></dl><p>${evaluation.comment === null ? "Commento non pubblicato" : escape(evaluation.comment)}</p></article>`).join("") : empty("Valutazioni non ancora pubblicate")}
       ${evaluations.length === 1 ? '<p class="muted">L’altra valutazione non è ancora pubblicata.</p>' : ""}</section>
     <section><h2>Giocatori della partita</h2>${empty("Roster non disponibile nella fonte")}<p>Statistiche individuali per questa partita non disponibili. Gli elenchi e i totali stagionali delle squadre sono consultabili nelle pagine ${
@@ -402,20 +474,21 @@ function poolTable(pool) {
 }
 
 function poolsPage() {
-  content.innerHTML = `<div class="page-title"><div><p class="eyebrow">Dal primo girone alle finali</p><h1>Gironi e fasi</h1></div></div><p class="muted">Ordine del foglio originale. Pt. = punti, M.f. = mete fatte, M.s. = mete subite. “—” indica un valore non pubblicato.</p>
-    <section><h2><span class="phase-number">01</span> Prima fase</h2><p>Due gironi da sei squadre. Ogni squadra incontra le altre cinque del proprio girone.</p><div class="pool-grid">${data.pools
-      .filter((pool) => pool.phase === "first")
+  const initialPools = data.pools.filter((pool) => pool.phase === "first");
+  const secondPools = data.pools.filter((pool) => pool.phase === "second");
+  const hasFinals = data.matches.some((match) => match.phase === "finals");
+  content.innerHTML = `<div class="page-title"><div><p class="eyebrow">Dai gironi ai piazzamenti</p><h1>Gironi e fasi</h1></div></div><p class="muted">Ordine del foglio originale. Pt. = punti, M.f. = mete fatte, M.s. = mete subite. “—” indica un valore non pubblicato.</p>
+    <section><h2><span class="phase-number">01</span> Prima fase</h2><p>${initialPools.length} gironi: ${initialPools.map((pool) => `${escape(pool.id)} (${pool.entries.length} squadre)`).join(", ")}. Ogni squadra incontra le altre del proprio girone.</p><div class="pool-grid">${initialPools
       .map(poolTable)
       .join(
         "",
       )}</div><p class="muted">Le classifiche iniziali a zero non assegnano le qualificazioni: X1 è uno slot iniziale, 1X è la futura prima classificata.</p></section>
-    <section><h2><span class="phase-number">02</span> Seconda fase</h2><p>Tre pool. Si ereditano gli incontri già giocati e si affrontano solo le squadre dell’altro girone.</p><div class="pool-grid">${data.pools
-      .filter((pool) => pool.phase === "second")
+    <section><h2><span class="phase-number">02</span> Seconda fase</h2><p>${secondPools.length} pool. ${data.carryovers.length ? "Si ereditano gli incontri già giocati e si affrontano solo le squadre dell’altro girone." : "Power pool per i piazzamenti finali, secondo gli slot pubblicati nella fonte. Non è prevista una fase a eliminazione diretta."}</p><div class="pool-grid">${secondPools
       .map(poolTable)
       .join("")}</div>
-    <details><summary>Incontri ereditati (${data.carryovers.length}, esclusi dal calendario)</summary>${data.carryovers.map((carry) => `<p>${escape(data.pools.find((pool) => pool.id === carry.pool)?.name || carry.pool)}: ${participant(carry.a)} – ${participant(carry.b)} <span class="muted">${shown(carry.score.a)} – ${shown(carry.score.b)}</span></p>`).join("")}</details></section>
-    <section><h2><span class="phase-number">03</span> Fase finale</h2><p>Progressione riportata nel foglio: W = vincente, L = perdente, Q = quarto, S = semifinale. Gli slot P indicano la classifica parziale dopo la seconda fase.</p>
-      ${["Q", "S", "F"].map((prefix) => `<h3>${{ Q: "Quarti di finale", S: "Semifinali", F: "Finali di piazzamento" }[prefix]}</h3>${fixtureGroups(filterMatches(data, { phase: "finals" }).filter((match) => match.id.startsWith(prefix)))}`).join("")}</section>
+    ${data.carryovers.length ? `<details><summary>Incontri ereditati (${data.carryovers.length}, esclusi dal calendario)</summary>${data.carryovers.map((carry) => `<p>${escape(data.pools.find((pool) => pool.id === carry.pool)?.name || carry.pool)}: ${participant(carry.a)} – ${participant(carry.b)} <span class="muted">${shown(carry.score.a)} – ${shown(carry.score.b)}</span></p>`).join("")}</details>` : ""}</section>
+    ${hasFinals ? `<section><h2><span class="phase-number">03</span> Fase finale</h2><p>Progressione riportata nel foglio: W = vincente, L = perdente, Q = quarto, S = semifinale. Gli slot P indicano la classifica parziale dopo la seconda fase.</p>
+      ${["Q", "S", "F"].map((prefix) => `<h3>${{ Q: "Quarti di finale", S: "Semifinali", F: "Finali di piazzamento" }[prefix]}</h3>${fixtureGroups(filterMatches(data, { phase: "finals" }).filter((match) => match.id.startsWith(prefix)))}`).join("")}</section>` : ""}
     <section><h2>Classifica finale</h2>${data.finalClassification.length ? `<ol class="classification">${data.finalClassification.map((entry) => `<li value="${entry.position}">${teamLink(entry.teamId)}</li>`).join("")}</ol>` : empty("Classifica finale non ancora pubblicata")}</section>
     <details class="rules"><summary>Format e regolamento dalla fonte</summary>${data.rules.map((rule) => `<p>${escape(rule.text)}</p>`).join("")}</details>`;
 }
@@ -437,7 +510,7 @@ function render({ navigation = false } = {}) {
     else link.removeAttribute("aria-current");
   });
   if (!data) {
-    content.innerHTML = `<h1>Partite</h1>${empty("Dati non disponibili. Usa Aggiorna per riprovare.")}`;
+    content.innerHTML = `<h1>Partite</h1><div class="secondary-filters">${divisionControl()}</div>${empty(busy ? "Caricamento delle partite…" : "Dati non disponibili. Usa Aggiorna per riprovare.")}`;
     return;
   }
   reconcilePreferences();
@@ -467,6 +540,8 @@ function locationHash() {
 
 async function refresh({ manual = false } = {}) {
   if (busy) return;
+  const revision = divisionRevision;
+  const requestedDivision = division;
   const restoreRefreshFocus = document.activeElement?.id === "refresh";
   busy = true;
   if (manual) {
@@ -474,10 +549,14 @@ async function refresh({ manual = false } = {}) {
     refreshStatus.textContent = "Verifica della copia pubblicata…";
   }
   renderFreshness();
+  if (!data) render();
   const result = await requestData(
-    `${import.meta.env.BASE_URL}data.json`,
+    `${import.meta.env.BASE_URL}${DIVISIONS[requestedDivision].dataFile}`,
     data,
+    fetch,
+    requestedDivision,
   );
+  if (revision !== divisionRevision) return;
   // Avoid replacing focused links/controls on a poll of an unchanged deployment.
   const changed =
     result.data && JSON.stringify(result.data) !== JSON.stringify(data);
@@ -501,7 +580,7 @@ async function refresh({ manual = false } = {}) {
       ? [active.selectionStart, active.selectionEnd, active.selectionDirection]
       : null;
     try {
-      localStorage.setItem(CACHE_KEY, JSON.stringify(data));
+      localStorage.setItem(cacheKey(requestedDivision), JSON.stringify(data));
     } catch {
       /* In-memory data still works when storage is denied/full. */
     }
@@ -518,13 +597,21 @@ async function refresh({ manual = false } = {}) {
     document.querySelector("#refresh").focus({ preventScroll: true });
 }
 
-try {
-  const cached = localStorage.getItem(CACHE_KEY);
-  if (cached) data = validateData(JSON.parse(cached));
-} catch {
-  /* An invalid cache must not stop a fresh network load. */
+content.addEventListener("change", (event) => {
+  if (event.target.id === "division") changeDivision(event.target.value);
+});
+updateDivisionHeader();
+restoreDivisionData();
+const initialUrl = new URL(window.location.href);
+initialUrl.searchParams.set("division", division);
+window.history.replaceState(null, "", initialUrl);
+function onNavigation() {
+  const requested = initialDivision(window.location.search);
+  if (requested !== division) changeDivision(requested, { fromNavigation: true });
+  else render({ navigation: true });
 }
-window.addEventListener("hashchange", () => render({ navigation: true }));
+window.addEventListener("hashchange", onNavigation);
+window.addEventListener("popstate", onNavigation);
 document.querySelector(".skip-link").addEventListener("click", (event) => {
   event.preventDefault();
   content.focus();

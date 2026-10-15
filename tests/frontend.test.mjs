@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
   filterMatches,
+  evaluationFormOptions,
   formatDate,
   matchState,
   normalizeSearch,
@@ -12,8 +13,10 @@ import {
   validateData,
 } from "../src/data.js";
 import { PREFERENCES_KEY, normalizePreferences, readPreferences, savePreferences, selectTeam, shortcutTeamIds, toggleTeam } from "../src/preferences.js";
+import { DIVISIONS, DIVISION_KEY, cacheKey, initialDivision } from "../src/divisions.js";
 
 const published = JSON.parse(readFileSync("public/data.json", "utf8"));
+const publishedB = JSON.parse(readFileSync("public/data-mixed-b.json", "utf8"));
 // SYNTHETIC in-memory baseline: future live scores must not break missing-result tests.
 // No synthetic values are written to public/ or to a deployment artifact.
 const data = structuredClone(published);
@@ -306,4 +309,96 @@ test("SYNTHETIC stale publication warning follows Rome match day and download ag
   assert.equal(publicationIsStale(synthetic, new Date("2026-10-26T10:00:00Z")), false);
   assert.equal(publicationIsStale({ ...synthetic, fetchedAt: "2026-10-25T09:59:00Z" }, new Date("2026-10-25T10:00:00Z")), false);
   assert.equal(publicationIsStale(null, now), false);
+});
+
+test("SYNTHETIC form links keep both directions, deduplicate unresolved links and reject bad targets", () => {
+  const next = clone();
+  const url = (id, from, to) => `https://docs.google.com/forms/d/e/SYNTHETIC/viewform?entry.1623410474=${id}&entry.1084977692=${encodeURIComponent(from)}&entry.839559032=${encodeURIComponent(to)}`;
+  for (const evaluation of next.sotg) {
+    evaluation.formUrl = null;
+    evaluation.formTeamsMatch = null;
+  }
+  const names = new Map(next.teams.map((team) => [team.id, team.name]));
+  const first = next.sotg.filter((evaluation) => evaluation.matchId === "X_1");
+  for (const evaluation of first) {
+    evaluation.formUrl = url("X_1", names.get(evaluation.evaluatingTeamId), names.get(evaluation.evaluatedTeamId));
+    evaluation.formTeamsMatch = true;
+  }
+  assert.equal(evaluationFormOptions(validateData(next), "X_1").length, 2);
+  first[0].formUrl = url("X_1", "Wrong", "Teams");
+  first[0].formTeamsMatch = false;
+  assert.equal(evaluationFormOptions(validateData(next), "X_1")[0].warning, true);
+  const final = next.sotg.filter((evaluation) => evaluation.matchId === "F1");
+  for (const evaluation of final) evaluation.formUrl = url("F1", "", "");
+  assert.equal(evaluationFormOptions(validateData(next), "F1").length, 1);
+  assert.equal(evaluationFormOptions(next, "missing").length, 0);
+  for (const target of ["javascript:alert(1)", "https://example.com/viewform", url("X_2", "", "")]) {
+    const invalid = structuredClone(next);
+    invalid.sotg[0].formUrl = target;
+    assert.throws(() => validateData(invalid));
+  }
+  const legacy = clone();
+  for (const evaluation of legacy.sotg) {
+    delete evaluation.formUrl;
+    delete evaluation.formTeamsMatch;
+  }
+  assert.equal(evaluationFormOptions(validateData(legacy), "X_1").length, 0);
+});
+
+test("both published division datasets validate with their own source and identity", () => {
+  assert.equal(validateData(published, "mixed-a"), published);
+  assert.equal(validateData(publishedB, "mixed-b"), publishedB);
+  assert.throws(() => validateData(publishedB, "mixed-a"));
+  assert.throws(() => validateData({...publishedB, sourceUrl: published.sourceUrl}));
+  assert.throws(() => validateData({...publishedB, division: "unknown"}));
+  const legacyA = structuredClone(published);
+  delete legacyA.division;
+  assert.equal(validateData(legacyA, "mixed-a"), legacyA);
+  assert.throws(() => validateData(legacyA, "mixed-b"));
+  assert.ok(publishedB.teams.some((team) => team.pool === "Z"));
+  assert.equal(evaluationFormOptions(publishedB, "X_1").length, 2);
+  for (const link of evaluationFormOptions(publishedB, "X_1")) {
+    assert.equal(new URL(link.url).searchParams.get("entry.1017677778"), "Mixed Serie B");
+  }
+});
+
+test("SYNTHETIC division choice uses explicit URLs before saved preferences and tolerates denied storage", () => {
+  const saved = {getItem: () => "mixed-b"};
+  assert.equal(initialDivision("", saved), "mixed-b");
+  assert.equal(initialDivision("?division=mixed-a", saved), "mixed-a");
+  assert.equal(initialDivision("?division=unknown", saved), "mixed-a");
+  assert.equal(initialDivision("", {getItem: () => {throw new Error("blocked");}}), "mixed-a");
+  assert.equal(initialDivision("", {getItem: () => "constructor"}), "mixed-a");
+  assert.notEqual(cacheKey("mixed-a"), cacheKey("mixed-b"));
+  assert.equal(cacheKey("mixed-a"), "ciu2026-data-v1");
+  assert.ok(DIVISION_KEY);
+  assert.equal(DIVISIONS["mixed-b"].dataFile, "data-mixed-b.json");
+});
+
+test("SYNTHETIC overlapping team IDs retain independent recent/selected teams per division", () => {
+  const values = new Map();
+  const storage = {getItem: (key) => values.get(key), setItem: (key, value) => values.set(key, value)};
+  const chosenA = {version: 1, selected: ["x1"], recent: ["x1", "y1"]};
+  const chosenB = {version: 1, selected: ["z1", "x3"], recent: ["x3", "z1"]};
+  assert.ok(savePreferences(storage, chosenA, "mixed-a"));
+  assert.deepEqual(readPreferences(storage, publishedB.teams, "mixed-b").selected, []);
+  assert.ok(savePreferences(storage, chosenB, "mixed-b"));
+  assert.deepEqual(readPreferences(storage, published.teams, "mixed-a"), chosenA);
+  assert.deepEqual(readPreferences(storage, publishedB.teams, "mixed-b"), chosenB);
+  assert.equal(values.get(PREFERENCES_KEY), JSON.stringify(chosenA));
+});
+
+test("SYNTHETIC cross-division refresh rejects wrong data and keeps only that division's prior snapshot", async () => {
+  const rejected = await requestData("/data-mixed-b.json", publishedB,
+    async () => ({ok: true, json: async () => published}), "mixed-b");
+  assert.equal(rejected.data, publishedB);
+  assert.ok(rejected.error);
+  const olderB = {...publishedB, fetchedAt: "2000-01-01T00:00:00Z"};
+  const accepted = await requestData("/data-mixed-b.json", null,
+    async () => ({ok: true, json: async () => olderB}), "mixed-b");
+  assert.equal(accepted.data, olderB);
+  assert.equal(accepted.error, null);
+  const failed = await requestData("/data-mixed-b.json", publishedB,
+    async () => {throw new Error("synthetic network failure");}, "mixed-b");
+  assert.equal(failed.data, publishedB);
 });

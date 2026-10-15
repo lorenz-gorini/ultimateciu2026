@@ -1,5 +1,7 @@
 /** Browser-local preferences; IDs are reconciled against validated source teams. */
 export const PREFERENCES_KEY = "ultimateciu2026-team-preferences-v1";
+export const preferencesKey = (division) => !division || division === "mixed-a"
+  ? PREFERENCES_KEY : `${PREFERENCES_KEY}-${division}`;
 const emptyPreferences = () => ({ version: 1, selected: [], recent: [] });
 
 export function normalizePreferences(value, teams) {
@@ -33,18 +35,18 @@ export function toggleTeam(preferences, id) {
     : selectTeam(preferences, id);
 }
 
-export function readPreferences(storage, teams) {
+export function readPreferences(storage, teams, division) {
   try {
-    return normalizePreferences(JSON.parse(storage.getItem(PREFERENCES_KEY)), teams);
+    return normalizePreferences(JSON.parse(storage.getItem(preferencesKey(division))), teams);
   } catch {
     return emptyPreferences();
   }
 }
 
 /** Return storage availability so the UI can describe persistence honestly. */
-export function savePreferences(storage, preferences) {
+export function savePreferences(storage, preferences, division) {
   try {
-    storage.setItem(PREFERENCES_KEY, JSON.stringify(preferences));
+    storage.setItem(preferencesKey(division), JSON.stringify(preferences));
     return true;
   } catch {
     return false;

@@ -9,4 +9,5 @@ __pycache__/
 !.env.example
 work/
 public/data.json
+public/data-mixed-b.json
 *.egg-info/

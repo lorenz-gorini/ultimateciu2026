@@ -1,14 +1,14 @@
 # Ultimate CIU 2026
 
-A read-only, mobile-friendly Italian viewer for CIU Mixed Serie A 2026: fixtures/results, searchable team pages, pools and final progression, with Spirit of the Game (SOTG) evaluations and team player totals when published.
+A read-only, mobile-friendly Italian viewer for CIU Mixed Serie A and Serie B 2026: fixtures/results, searchable team pages, pools and final progression, with Spirit of the Game (SOTG) evaluations and team player totals when published.
 
-Website: [CIU Mixed Serie A 2026](https://lorenz-gorini.github.io/ultimateciu2026/). Source repository: [lorenz-gorini/ultimateciu2026](https://github.com/lorenz-gorini/ultimateciu2026).
+Website: [CIU Mixed 2026](https://lorenz-gorini.github.io/ultimateciu2026/). Source repository: [lorenz-gorini/ultimateciu2026](https://github.com/lorenz-gorini/ultimateciu2026).
 
 ## Implementation entry point
 
 Read [the implementation handoff](docs/IMPLEMENTATION_HANDOFF.md) for the verified source schema, product specification, update strategy and acceptance checks. It is the authoritative task record and current implementation status. Read [AGENTS.md](AGENTS.md) before editing.
 
-The source is the [organizer's Google spreadsheet](https://docs.google.com/spreadsheets/d/1k_xJctOAUqizJW00395YIvDwC5gDZKek2R26UpJ_HUQ/edit?gid=2075572219#gid=2075572219). The frozen export at `tests/fixtures/source-2026-10-13.xlsx` is test evidence. Its source-reported update timestamp is 11 October 2026 at 16:15:23; it was downloaded on 13 October 2026. Live data must come from a new validated download.
+The organizer publishes both sources on the [federation's championship page](https://flyingdisc.it/campionati-2026/): [Mixed Serie A spreadsheet](https://docs.google.com/spreadsheets/d/1k_xJctOAUqizJW00395YIvDwC5gDZKek2R26UpJ_HUQ/edit) and [Mixed Serie B spreadsheet](https://docs.google.com/spreadsheets/d/1ghPcgKXs1r-Dy22BBVRFrVVcB-N7WNBOfHmlNm1a1Go/edit). The immutable test exports are `tests/fixtures/source-2026-10-13.xlsx` (A, downloaded 13 October) and `tests/fixtures/source-mixed-b-2026-10-15.xlsx` (B, downloaded 15 October). Their source-reported update times are 11 October 2026 at 16:15:23 and 16:15:21 respectively. Live data must come from new validated downloads. `src/divisions.json` is the shared registry of division labels, source URLs and output filenames.
 
 ## Local setup and use
 
@@ -22,13 +22,15 @@ Run these commands **from this project folder**. Local validation used Node 26.0
    uv pip install --python "$ciu_python" --require-hashes -r requirements.lock
    ```
 
-2. **Import fresh source data.** This anonymously downloads the XLSX, validates the source layout and normalized data, and atomically replaces `public/data.json`. Any failure leaves the previous file intact. The source spreadsheet is never modified. This is required on a fresh checkout because generated JSON is ignored by Git.
+2. **Import fresh source data.** This anonymously downloads both XLSX workbooks, validates their layouts and normalized data, then atomically replaces each division's JSON (`public/data.json` and `public/data-mixed-b.json`). Both downloads must validate before either output is replaced. The source spreadsheets are never modified. This is required on a fresh checkout because generated JSON is ignored by Git.
 
    ```sh
    conda run -n general python -m importer
    ```
 
-3. **Test and build.** Parser tests read the immutable workbook and mutate copies in memory. Frontend tests validate the current JSON and use clearly identified synthetic copies for results/failure tests. Only the Python frozen-fixture tests impose the historical 12-team/56-match counts.
+   For a targeted local refresh, add `--division mixed-a` or `--division mixed-b`; the production build still requires both files. A local workbook requires one division, `--input` and its actual `--fetched-at` timestamp. Builds for publication reject `sourceMode: frozen`.
+
+3. **Test and build.** Parser tests read the immutable workbooks and mutate copies in memory. Frontend tests validate both current datasets and use clearly identified synthetic copies for results/failure tests. Only the Python frozen-fixture tests impose historical counts (A: 12 teams/56 fixtures; B: 18 teams/63 fixtures).
 
    ```sh
    conda run -n general python -m unittest discover -s tests -p 'test_*.py' -v
@@ -42,17 +44,21 @@ Run these commands **from this project folder**. Local validation used Node 26.0
    npm run preview
    ```
 
-   For edits, `npm run dev` serves the same subpath with automatic source updates. A production preview needs another `npm run build` followed by a browser reload after source changes. A fresh importer run also needs a rebuild to replace the preview’s JSON.
+   Use [the Serie B preview](http://127.0.0.1:4173/ultimateciu2026/?division=mixed-b#/) to open that division directly. The explicit `?division=` parameter is preserved in internal links and takes precedence over the browser's remembered choice. A production preview needs another `npm run build` and browser reload after source/data changes; `npm run dev` updates source edits automatically.
 
 ## Refresh and deployment
 
-Lorenzo authorized publication of the team-picker and season scheduling update on 14 October 2026. Deployment results and any remaining hosted checks are recorded in the [handoff](docs/IMPLEMENTATION_HANDOFF.md).
+Publication evidence, current deployment status and remaining hosted checks are recorded in the [handoff](docs/IMPLEMENTATION_HANDOFF.md).
+
+The teal Divisione selector is the first control in the filter row below team search, followed by date, phase and status. It keeps the same views and styling for both competitions. It remembers the last choice on this device. Cached JSON, selected teams and recent teams are isolated by division, retaining the existing Serie A preferences. Switching starts at the chosen division's schedule and resets the secondary filters; saved team choices are restored. Late responses from a previous division are ignored. Source links and timestamps follow the active division. Serie B has three initial groups and six placement power pools, with no knockout stage or inherited matches; views use the actual normalized structure rather than copying Serie A's bracket.
 
 On Partite, clicking the primary search input opens the team chooser; typing filters its options and, with no teams selected, the fixtures themselves. Recent and selected teams appear once in a single shortcut group beside the input (below it on mobile). Clicking a shortcut toggles inclusion: teal with a check means selected, white with a plus means available. A fixture involving any selected team is shown once; with selected teams, typing searches for additional choices. All selected teams remain accessible even if more than three are selected, while recent history contains at most three choices. Data, Fase and Stato remain compact single-value secondary filters, labelled accessibly without repeated visible captions. The last selection and history are saved only in this browser profile using project-specific localStorage, on explicit actions rather than background redraws. “Azzera filtri” restores all teams while retaining recent shortcuts; “Cancella recenti”, inside the chooser, clears only history. An explicitly empty selection stays empty on reload. Blocked storage leaves preferences usable for the visit; no cookie, account or server is required.
 
 Each manual “Aggiorna” check reports its completion time and whether a newer published copy was loaded. The download and spreadsheet timestamps describe the data itself, so they stay unchanged when no new copy is available. An unsuccessful check reports failure and retains the last valid data.
 
 Vite builds a static site at `/ultimateciu2026/`. Python/openpyxl is the single source adapter; `src/data.schema.json` is the shared output schema used by Python/jsonschema and browser/Ajv validation. There is no server framework or account system.
+
+Match details now include **Valuta**. It opens the exact Google Form hyperlink from `Valutazioni SOTG!E`, with the match ID already filled. When two directional links exist, choose the evaluating team; identical links for unresolved teams appear once. The website never submits an evaluation. Google currently requires sign-in to access the form. Some organizer links prefill inconsistent team names; affected pages warn users to check/correct the form fields themselves. URLs are preserved, not rewritten. The importer rejects unsafe destinations or a different match ID before replacing valid data. See the [handoff](docs/IMPLEMENTATION_HANDOFF.md#match-specific-valuta-links--14-october-2026) for source findings and verification.
 
 “Aggiorna” re-fetches the served JSON with caching disabled. It preserves the current team and filters, retains the last validated data on network/schema failure, and shows both download age and the source-reported update timestamp. The browser also polls every 90 seconds while visible and refreshes when the tab becomes visible. Validated data is cached in localStorage when available, so a previously loaded browser can recover its copy after a failed load. A first visit without working JSON has a retry state, not an empty competition. Browser refresh cannot execute the importer or fetch newer workbook data by itself.
 
@@ -68,7 +74,7 @@ The site was published on 13 October 2026 from its separate public project repos
 - `src/`: static interface, shared data schema, browser validation/search/time/refresh functions.
 - `tests/`: immutable workbook and isolated synthetic checks.
 - `.github/workflows/`: shared verification and gated Pages refresh/deployment.
-- `public/data.json`, `dist/`, `work/`: generated local data, builds and verification evidence; excluded from Git.
+- `public/data.json`, `public/data-mixed-b.json`, `dist/`, `work/`: generated local data, builds and verification evidence; excluded from Git.
 
 The frozen source is preserved. The professional homepage, its DNS/settings, the organizer’s workbook and SOTG forms were untouched.
 

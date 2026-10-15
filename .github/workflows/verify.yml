@@ -34,7 +34,7 @@ jobs:
           npm ci
       - name: Check immutable fixture and synthetic failures
         run: python -m unittest discover -s tests -p 'test_*.py' -v
-      - name: Import live public workbook
+      - name: Import both live public division workbooks
         run: python -m importer
       - name: Test and build at project subpath
         env:

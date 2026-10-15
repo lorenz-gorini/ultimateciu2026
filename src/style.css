@@ -119,9 +119,10 @@ section > p {
   margin: auto;
   padding: 16px 28px;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 24px;
+  gap: 14px 20px;
 }
 .brand {
   color: white;
@@ -462,6 +463,21 @@ input[type="search"] {
   padding-left: 0;
   font-size: 0.76rem;
 }
+.secondary-filters .division-picker {
+  flex: 0 1 220px;
+  min-width: 0;
+}
+.secondary-filters .division-picker select {
+  padding: 5px 10px;
+  border: 1px solid var(--teal);
+  border-radius: 6px;
+  background: var(--teal);
+  color: white;
+  font-weight: 650;
+}
+.secondary-filters .division-picker select:hover {
+  background: #0c544e;
+}
 .secondary-filters .secondary {
   min-height: 36px;
   padding: 5px 10px;
@@ -475,6 +491,63 @@ input[type="search"] {
   background: #fff8e9;
   color: #59401c;
   font-size: 0.88rem;
+}
+.section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+.section-heading h2 {
+  margin: 0;
+}
+.button-link {
+  display: inline-block;
+  padding: 9px 17px;
+  background: var(--teal);
+  border-radius: 7px;
+  color: white;
+  text-decoration: none;
+  cursor: pointer;
+  min-height: 44px;
+}
+.button-link:hover {
+  background: #0c544e;
+}
+.evaluation-forms {
+  position: relative;
+  flex: none;
+}
+.evaluation-forms > div {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 3;
+  width: min(310px, calc(100vw - 36px));
+  padding: 14px;
+  border: 1px solid var(--line);
+  background: white;
+  border-radius: 7px;
+  box-shadow: var(--card-shadow);
+}
+.evaluation-forms p {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.evaluation-form-link {
+  display: block;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+.form-warning {
+  padding: 12px;
+  border-left: 3px solid #bf7942;
+  background: #fff8e9;
+  color: #59401c;
+  border-radius: 5px;
+  font-size: 0.85rem;
 }
 [hidden] {
   display: none !important;
@@ -982,6 +1055,9 @@ footer a {
   }
   .secondary-filters label {
     flex: 1 1 calc(50% - 12px);
+  }
+  .secondary-filters .division-picker {
+    flex: 1 1 100%;
   }
   .secondary-filters select,
   .secondary-filters .secondary {

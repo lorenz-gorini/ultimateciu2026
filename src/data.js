@@ -1,5 +1,6 @@
 import Ajv from "ajv";
 import schema from "./data.schema.json" with { type: "json" };
+import { DEFAULT_DIVISION, DIVISIONS } from "./divisions.js";
 
 const checkShape = new Ajv({ allErrors: true, strict: true }).compile(schema);
 export const PHASES = {
@@ -20,11 +21,15 @@ function invariant(condition, message) {
 }
 
 /** Shared schema checks shape; additional checks protect joins and status semantics. */
-export function validateData(data) {
+export function validateData(data, expectedDivision = null) {
   invariant(
     checkShape(data),
     `Formato dati non valido: ${checkShape.errors?.[0]?.instancePath || "/"} ${checkShape.errors?.[0]?.message || ""}`,
   );
+  const division = data.division ?? DEFAULT_DIVISION;
+  invariant(Object.hasOwn(DIVISIONS, division) && data.sourceUrl === DIVISIONS[division].sourceUrl,
+    "Divisione e foglio sorgente non corrispondono");
+  invariant(!expectedDivision || division === expectedDivision, "Dati di un’altra divisione");
   const teams = new Map(data.teams.map((team) => [team.id, team]));
   const matches = new Map(data.matches.map((match) => [match.id, match]));
   invariant(
@@ -87,6 +92,20 @@ export function validateData(data) {
       "Partita/data SOTG sconosciuta",
     );
     const { evaluatingTeamId: from, evaluatedTeamId: to } = evaluation;
+    if (evaluation.formUrl != null) {
+      const parameters = new URL(evaluation.formUrl).searchParams;
+      invariant(parameters.getAll("entry.1623410474").length === 1 &&
+        parameters.get("entry.1623410474") === evaluation.matchId,
+        "Link modulo riferito a una partita diversa");
+      const expected = from === null || to === null ? null :
+        parameters.getAll("entry.1084977692").length === 1 &&
+        parameters.getAll("entry.839559032").length === 1 &&
+        parameters.get("entry.1084977692") === teams.get(from)?.name &&
+        parameters.get("entry.839559032") === teams.get(to)?.name;
+      invariant(evaluation.formTeamsMatch === expected, "Verifica squadre del modulo incoerente");
+    } else {
+      invariant(evaluation.formTeamsMatch == null, "Verifica squadre senza modulo");
+    }
     const populated = [
       ...evaluation.categories,
       evaluation.total,
@@ -124,6 +143,24 @@ export function validateData(data) {
     "Squadra classifica sconosciuta",
   );
   return data;
+}
+
+/** Deduplicate identical unresolved-team links; keep both evaluation directions. */
+export function evaluationFormOptions(data, matchId) {
+  const names = new Map(data.teams.map((team) => [team.id, team.name]));
+  const options = new Map();
+  for (const evaluation of data.sotg.filter((entry) => entry.matchId === matchId && entry.formUrl)) {
+    const existing = options.get(evaluation.formUrl);
+    const label = evaluation.evaluatingTeamId && evaluation.evaluatedTeamId
+      ? `${names.get(evaluation.evaluatingTeamId)} → ${names.get(evaluation.evaluatedTeamId)}`
+      : "Valuta";
+    options.set(evaluation.formUrl, {
+      url: evaluation.formUrl,
+      label,
+      warning: existing?.warning || evaluation.formTeamsMatch === false,
+    });
+  }
+  return [...options.values()];
 }
 
 export function normalizeSearch(value) {
@@ -209,14 +246,14 @@ export function publicationIsStale(data, now = new Date()) {
 }
 
 /** On failure the caller's last validated object remains available unchanged. */
-export async function requestData(url, previous, fetcher = fetch) {
+export async function requestData(url, previous, fetcher = fetch, division = DEFAULT_DIVISION) {
   try {
     const response = await fetcher(`${url}?v=${Date.now()}`, {
       cache: "no-store",
       signal: AbortSignal.timeout(12000),
     });
     invariant(response.ok, `HTTP ${response.status}`);
-    const data = validateData(await response.json());
+    const data = validateData(await response.json(), division);
     invariant(
       !previous || Date.parse(data.fetchedAt) >= Date.parse(previous.fetchedAt),
       "La copia pubblicata è precedente ai dati conservati",

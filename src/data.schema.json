@@ -25,7 +25,11 @@
       "const": 1
     },
     "sourceUrl": {
-      "const": "https://docs.google.com/spreadsheets/d/1k_xJctOAUqizJW00395YIvDwC5gDZKek2R26UpJ_HUQ/edit"
+      "type": "string",
+      "pattern": "^https://docs\\.google\\.com/spreadsheets/d/[A-Za-z0-9_-]+/edit$"
+    },
+    "division": {
+      "type": "string"
     },
     "sourceMode": {
       "enum": ["live", "frozen"]
@@ -76,7 +80,7 @@
             "type": "string"
           },
           "pool": {
-            "enum": ["X", "Y"]
+            "enum": ["X", "Y", "Z"]
           },
           "provenance": {
             "type": "object",
@@ -435,6 +439,13 @@
           },
           "evaluatedTeamId": {
             "type": ["string", "null"]
+          },
+          "formUrl": {
+            "type": ["string", "null"],
+            "pattern": "^https://docs\\.google\\.com/forms/d/e/[A-Za-z0-9_-]+/viewform\\?[^#]*$"
+          },
+          "formTeamsMatch": {
+            "type": ["boolean", "null"]
           },
           "categories": {
             "type": "array",

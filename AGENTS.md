@@ -1,6 +1,6 @@
 # Project instructions
 
-- Purpose: a read-only CIU Mixed Serie A 2026 viewer, grounded in the organizer's Google spreadsheet.
+- Purpose: a read-only CIU Mixed Serie A and Serie B 2026 viewer, grounded in each division's organizer spreadsheet.
 - Read `README.md` and `docs/IMPLEMENTATION_HANDOFF.md` first. Keep the handoff as the single detailed task/status record; update it after substantive implementation and review.
 - Follow Lorenzo's global instructions and applicable `~/.agents/rules/` files. Before Git work read `~/.agents/rules/git.md`; before Python implementation read `~/.agents/rules/python.md`. Inspect existing changes and preserve unrelated work. Do not copy global communication rules into this file.
 - Keep the professional homepage repository, DNS and settings untouched. This project belongs in its own `ultimateciu2026` repository and subpath.

@@ -4,11 +4,11 @@ Prepared 13 October 2026; local implementation, validation and authorized public
 
 ## Start here
 
-**Current state: published and verified on 14 October 2026.** The team shortcuts, compact filters, seasonal refresh policy and final visual cleanup are live. See [Publication of team selection and seasonal refresh](#publication-of-team-selection-and-seasonal-refresh--14-october-2026) for deployment evidence and the remaining scheduled-run observation. The original plans and dated local checks below are historical acceptance evidence.
+**Current state: the team shortcuts, compact filters, seasonal refresh policy and final visual cleanup are published and verified on 14 October 2026.** The newer [match-specific Valuta links](#match-specific-valuta-links--14-october-2026) and [Mixed Serie B selector](#mixed-serie-b-division-selector--15-october-2026) are implemented and tested locally, with commit/push/publication pending. Lorenzo has now authorized the combined commit/push and requested moving Divisione into the filter row; see the latest publication entry for current status. See [Publication of team selection and seasonal refresh](#publication-of-team-selection-and-seasonal-refresh--14-october-2026) for the deployed version and remaining scheduled-run observation. The original plans and dated local checks below are historical acceptance evidence.
 
 **Latest UI correction:** [Single team shortcuts](#single-team-shortcuts--14-october-2026) supersedes the earlier separate chips/recent rows and repeated visible filter captions. Use that revision when reviewing or continuing the UI work.
 
-The plans are [Periodic data refresh](#periodic-data-refresh-handoff--13-october-2026) and [Team selection and remembered preferences](#team-selection-and-remembered-preferences--13-october-2026). Remaining work is Lorenzo's review, followed by an authorized project-only push/deployment and hosted checks of the revised schedule.
+The completed plans are [Periodic data refresh](#periodic-data-refresh-handoff--13-october-2026) and [Team selection and remembered preferences](#team-selection-and-remembered-preferences--13-october-2026). Next is Lorenzo's review/publication instruction for the combined division-selector/Valuta checkpoint, plus hosted observation of the revised schedule.
 
 Work in `/Users/lorenzogorini/Library/CloudStorage/OneDrive-UniversitàCommercialeLuigiBocconi/PhD/Coding/ultimateciu2026`.
 
@@ -18,7 +18,7 @@ The project folder was initially empty. The local implementation ended without a
 
 ## Product requirements
 
-Default interface language: Italian, appropriate to the source and competition. This is a design default, not a confirmed user preference. Use the accurate title “CIU Mixed Serie A 2026”.
+Default interface language: Italian, appropriate to the source and competition. This is a design default, not a confirmed user preference. The 15 October division selector extends the original Serie A requirements below to both Mixed divisions, with the accurate active-division title and source-specific competition format.
 
 1. **Partite is the landing page.** Show all scheduled and completed fixtures, grouped by date and sorted by time, with team names or unresolved qualification slots, score or status, city, field, and phase. Keep the schedule prominent rather than adding a large hero. Filters: team search, date, phase and status, with clear reset and empty states. Initial view includes all fixtures; offer a jump to the next scheduled date. Preserve filters when returning from a detail view.
 2. **Team page.** Search/select a team, then see upcoming games and recorded results separately, with dates, times, cities and fields. Include pool membership, available team statistics and player data. Link every resolved team name from pool tables and match details to this same page. Searching should ignore case and accents without changing canonical source names.
@@ -72,7 +72,7 @@ These cell positions describe the inspected snapshot. Validate headers, section 
 
 - A match ID, B date, C evaluating team, D evaluated team, E evaluation-form link, G:K five categories, L total, M comment.
 - Match ID/date span each pair of opposing evaluations through merged cells. Expand merges, then join by match ID and evaluation direction; never by row order against `Partite`.
-- Empty scores stay null. Zero is a valid supplied score. A form link labelled `valuta` is not an existing evaluation and must not become a submission action in this read-only site.
+- Empty scores stay null. Zero is a valid supplied score. A form link labelled `valuta` is not an existing evaluation. Lorenzo's 14 October request authorizes external navigation through a Valuta button using the exact E-column hyperlink; the site must never submit a form itself. See the latest Valuta entry for the prefill contract and source warnings.
 
 **Statistiche**
 
@@ -524,3 +524,122 @@ The public browser showed the removed upper panel, stronger dawn background, com
 **Remaining observation:** the revised cron is active/configured, but two actual `schedule` runs of the new policy have not yet been observed. This is a future operational verification, not a publication blocker. Push and manual refresh are proven. GitHub scheduling remains best effort; no exact update latency is promised. Before the first match weekend, inspect the scheduled-run history as described above. Lorenzo can use/share the public website now; no setup or server action is required.
 
 The final read-only workflow inspection returned `active`. Scheduled-run history now includes [38482158621](https://github.com/lorenz-gorini/ultimateciu2026/actions/runs/38482158621), created 14 October at 01:06:22 Rome, and the preceding [38447169780](https://github.com/lorenz-gorini/ultimateciu2026/actions/runs/38447169780); both succeeded on the old `8118f33` workflow. Neither counts as observation of the revised cadence.
+
+## Match-specific Valuta links — 14 October 2026
+
+**Status: implemented and verified locally; checkpoint/publication pending.** Starting checkout was clean on `main` at `c89f802606350778a586f198bce54256e962ef2f`. Lorenzo requested a Valuta button on each match detail, using the Link column in Valutazioni SOTG. This supersedes the initial exclusion of external form links; the prohibition on spreadsheet edits and automated form submissions remains. No GitHub write or source/form submission occurred in this feature pass.
+
+**Source inspection:** an anonymous fresh XLSX import at `2026-10-14T16:00:37.947554+00:00` (18:00:37 Rome) validated 12 teams, 56 fixtures and six carry-overs. The source still reports 11 October 16:15:23. `Valutazioni SOTG!E1` is `LINK`; E2:E113 contain 112 hyperlinks for all 56 matches, two directional rows per match. They use one shared Google Form, with distinct match/team prefills rather than separate form documents. There are 86 distinct exact URLs: 30 resolved matches have two directional links each; 26 unresolved matches have identical paired URLs, deduplicated into one link per detail page.
+
+The importer preserves actual hyperlink targets, including merged-cell anchors, rather than using the display label or reconstructing URLs. Optional `formUrl` and `formTeamsMatch` fields extend SOTG records in schema version 1. Both Python and browser validation require approved HTTPS Google Form view URLs and exactly one matching `entry.1623410474` match ID. Team prefills (`entry.1084977692` evaluating, `entry.839559032` evaluated) are checked against source team names: true if consistent, false if inconsistent, null if teams are unresolved. A nonempty link label without a hyperlink fails the import; a genuinely absent link remains unavailable. Invalid URLs or wrong match IDs fail before atomic replacement, retaining prior valid data. Old validated browser caches without the additive fields remain readable; buttons appear after a fresh published copy is loaded.
+
+**UI:** Valuta sits beside the SOTG heading. Two distinct URLs open a keyboard-operable chooser labelled “Quale squadra sta valutando?”, with `evaluating → evaluated` links. One unique URL opens directly. External links use a new tab and `noopener noreferrer`. Missing links have an explicit unavailable message. Form links do not count as published evaluations; empty scores and comments remain empty. The site never enters or submits an evaluation.
+
+**WARNING — organizer prefill inconsistencies:** 10 of 112 hyperlinks have correct match IDs but wrong team names relative to the sheet's C/D columns. These affect five matches: X_2 (E4:E5), X_3 (E6:E7), Y_8 (E40:E41), Y_9 (E42:E43), Y_10 (E44:E45). Each affected page warns users to check/correct the team fields themselves before submitting. Exact organizer URLs are preserved; no corrected link is invented and no source cell is edited. Source correction belongs to the organizer; a subsequent validated import will remove the warning automatically when the prefills match.
+
+| Verification | Result |
+| --- | --- |
+| Python unittest suite | 22 passed; frozen hyperlink/direction checks, wrong-team detection, absent/invalid/wrong-match links, existing atomic failure retention and refresh-policy cases |
+| Frontend suite | 17 passed; distinct directions, unresolved-link deduplication, warnings, unsafe/wrong-match rejection and old-cache compatibility alongside existing coverage |
+| Production build | Passed with freshly validated live JSON at the project subpath |
+| Git diff check | Passed; only the nine feature/documentation/test paths below are changed |
+| Local browser X_1 | Valuta opens by click and Enter; both source links and direction labels verified |
+| Local browser X_2 / F1 | Wrong-prefill warning present / one direct Valuta link with F1 ID and blank unresolved teams |
+| 320px menu | Client and scroll widths both 305px; no horizontal overflow; temporary viewport reset |
+| Browser console | No warnings/errors in inspected local pages |
+| External Google Form | Exact X_1 link opens “Modulo Valutazione SOTG - CIU 2026”, then “Accedi per continuare”; no sign-in or submission attempted |
+
+Local [preview](http://127.0.0.1:4173/ultimateciu2026/#/match/X_1) and [screenshot](../work/verification/valuta-local.jpg) show the result. Evidence, fresh workbook, JSON and build remain ignored; the frozen workbook is unchanged. Workflows need no change: their existing fresh import/test/build steps will include these fields after publication.
+
+**Limits and next action:** authenticated form fields and submission were not inspected because the form requires Google sign-in; URL parameters and the source mapping were verified. Lorenzo must sign in if he wants to complete an evaluation. Future source form IDs/entry mappings or worksheet layout changes require inspecting and adapting the single importer, rather than silently rewriting links. Existing seasonal scheduler observation remains separate. The public site still runs the previous checkpoint.
+
+**Checkpoint for review:** proposed subject `Add match-specific SOTG form links`. Exact scope: `README.md`, `docs/IMPLEMENTATION_HANDOFF.md`, `importer/workbook.py`, `src/data.js`, `src/data.schema.json`, `src/main.js`, `src/style.css`, `tests/frontend.test.mjs`, `tests/test_importer.py`. Lorenzo can request “Commit and publish the Valuta update” after inspecting the preview; stage only those nine paths, inspect the cached diff, then commit/push solely to `lorenz-gorini/ultimateciu2026` and verify the resulting Pages deployment.
+
+## Mixed Serie B division selector — 15 October 2026
+
+**Status: complete locally, awaiting review and publication authorization for this checkpoint.** Starting branch/HEAD: `main` / `c89f802606350778a586f198bce54256e962ef2f`. The nine uncommitted Valuta paths from 14 October were inspected and preserved; this extension intentionally overlaps their importer, schema, UI, tests and documentation. No commit, push, deployment, GitHub settings/access change, spreadsheet edit or form submission occurred. Homepage/DNS and Raspberry Pi are untouched.
+
+**Request:** add Mixed Serie B to the existing viewer with the same presentation and interactions. The [federation championship page](https://flyingdisc.it/campionati-2026/) explicitly links the [provided Serie B spreadsheet](https://docs.google.com/spreadsheets/d/1ghPcgKXs1r-Dy22BBVRFrVVcB-N7WNBOfHmlNm1a1Go/edit). Inspection confirms the same four-sheet data model, with different team counts, row anchors and competition format. One shared importer and frontend serve both divisions; no second website or backend is introduced.
+
+### Source evidence and mapping
+
+The first anonymous Serie B export completed **15 October at 15:17:57 Rome** (`2026-10-15T13:17:57.146200+00:00`). Its unchanged bytes are now the immutable fixture `tests/fixtures/source-mixed-b-2026-10-15.xlsx`, 144,480 bytes, SHA-256 `4d94dfca2318d3cdad0d14a6f04472148b812c08c67fedb7e0a2d3d931d53356`. The original Serie A fixture remains byte-identical to HEAD (Git blob `c0e9ea0587bf233c7936e028005026ef5304cee6`).
+
+| Data | Serie A fresh import | Serie B fresh import |
+| --- | ---: | ---: |
+| Teams | 12 | 18 |
+| Fixtures (first / second / knockout) | 56 (30 / 12 / 14) | 63 (45 / 18 / 0) |
+| Initial groups / second-phase pools | 2 / 3 | 3 / 6 |
+| Inherited rows, excluded from fixtures | 6 | 0 |
+| SOTG links / incorrect team prefills | 112 / 10 | 126 / 0 |
+| Published scores / SOTG / players / final placements | 0 / 0 / 0 / 0 | 0 / 0 / 0 / 0 |
+| Actual download, 15 October Rome | 15:22:25 | 15:22:27 |
+| Organizer-reported timestamp, 11 October Rome | 16:15:23 | 16:15:21 |
+
+Fresh live timestamps: A `2026-10-15T13:22:25.708769+00:00`; B `2026-10-15T13:22:27.624074+00:00`. Both production JSON files are equal to their validated live inputs; no synthetic data is present in either build artifact.
+
+Serie B layout, validated before extraction:
+
+- `Classifiche e format`: team seeds/names/affiliations/provinces B5:L22. First phase heading B25, initial pool headers B26/B34/B42 and entries B27:F32/B35:F40/B43:F48 (X/Y/Z, six each). Second phase H25, placement-pool headers H26/H31/H36/H41/H46/H51 and three-entry blocks immediately below (1°–3° through 16°–18°). Final placement numbers N26:N43 with names in O; rules start B57/N57. The source prose contains “3 gironi (X e Y)”; the UI derives X/Y/Z from verified pool data and preserves quoted source prose unchanged.
+- `Partite`: first phase J3, header rows 4/21/38, X/Y/Z fixtures at 5:19/22:36/39:53. Second phase J56, full header row 57 and shorter repeated headers 62/67/72/77/82; three fixtures per power-pool block at 58:60, 63:65, 68:70, 73:75, 78:80, 83:85. Column meanings remain identical to Serie A. Matches are `X_1…X_15`, `Y_1…Y_15`, `Z_1…Z_15`, `P_1…P_18`; qualifiers `1Z…6Z` remain unresolved. No carry-over or elimination phase exists. The browser verified that gid `1898128397` opens Serie B's Partite grid, so existing range links remain valid with the correct workbook ID.
+- `Valutazioni SOTG`: identical headers, merged ID/date pairs and directional links in E2:E127; all 126 link division/match prefills agree, and all known team prefills agree. The exact URLs include `Mixed Serie B`; they are preserved, never reconstructed.
+- `Statistiche`: same ten numbered slots and seasonal-total columns, with no populated player rows. Match roster/individual match-slot semantics remain unavailable.
+
+### Implementation and operation
+
+`src/divisions.json` is the shared registry for IDs, labels, source URLs and JSON filenames. Python reads it directly; JavaScript imports it. Explicit inspected row-layout configurations feed the single workbook parser. The schema accepts an additive `division` field and pool Z; semantic validators reject unknown identities or a division/source mismatch. Existing deployed Serie A cache objects without the field remain accepted only as Serie A.
+
+The header selector offers Mixed Serie A/B and retains the existing style, navigation, filters, team/match detail, Valuta links and empty states. It remembers the last division locally. `?division=mixed-a` or `?division=mixed-b` takes precedence over storage and remains in internal/shareable URLs. Changing the selector opens that division's schedule, resets date/phase/status/search and restores its saved teams. Browser back/forward synchronizes division and route. Team selections/recents and cached data use separate keys; Serie A keeps its original keys. Source links, page title and freshness timestamps follow the active division. A division revision check ignores responses from earlier selections, including switching A→B→A while an old A request remains in flight.
+
+Pool counts and present phase choices come from each dataset. Serie A retains its carry-overs and knockout progression. Serie B shows three groups, six placement pools and final classification without a fabricated bracket or an empty inherited-games control. Its published rules explain promotion; zero standings do not assign qualifiers.
+
+`python -m importer` now imports both live divisions by default. Both are downloaded/validated before either output is written, then each JSON is replaced atomically. `--division mixed-a` / `mixed-b` target one division; local `--input`/custom `--output` require a single division. The build checks both datasets and requires `sourceMode: live` in CI. The existing shared workflow therefore refreshes both spreadsheets and deploys them together on its unchanged cadence; a download/validation/test failure prevents deployment and retains the last successful public version. Atomicity is per file; a local disk-write failure between replacements is not a filesystem transaction. This does not permit a partial Pages deployment because the job fails before upload/deploy.
+
+### Verification and remaining limits
+
+- **27 Python tests passed**, including Serie B fixture counts, all teams' five first-phase games, Z/placement references, form division/direction, wrong source/division, changed headings, removed IDs and a simulated B failure that replaces neither output. Existing Serie A, Valuta, atomic-output and season-policy tests pass.
+- **21 frontend tests passed**: both live datasets, wrong-division rejection, legacy A cache compatibility, explicit/saved/invalid division choices, denied storage, isolated recent/selected IDs, failed refresh retention and all previous checks.
+- Production build and live-data validation passed for both files; `dist` equals each live normalized input. actionlint 1.7.12 passes both workflows; `git diff --check` passes.
+- Browser: A shows 56 fixtures, B 63. Searching/selecting MIXBAOBAB shows its five fixtures; A→B switching and reload retain distinct histories/selections. B X_1 opens the correct teams, schedule/source URL and both directional Valuta links. The team page shows its source affiliation/province. Pools show X/Y/Z and all six power pools, with no knockout/inherited section. Browser Back from A returns to the correct B match detail. Aggiorna reports a successful unchanged-copy check while retaining B's five selected fixtures; console warnings/errors are empty in the regular preview.
+- A separate local verification server delayed only A JSON by ten seconds. After starting an A refresh and immediately switching to B, B remained selected with 63 fixtures after the late A response completed. The temporary server/tab were stopped; only ignored verification code remains.
+- At 320px, B's pool page had client/scroll widths both 305px and a readable selector; the temporary viewport was reset. The regular preview remains on port 4173. [Desktop evidence](../work/verification/mixed-b-selector-desktop.jpg) shows the selector and all-63 schedule state.
+
+**Limitations:** real populated result/SOTG/player/final-placement records still cannot be checked against organizer cells; synthetic tests cover those existing paths. The five Serie A form-prefill warnings remain; none were found in Serie B. Google Form authentication/submission remains untested and no form was submitted. The seasonal cutoff (23 November Rome) covers both divisions' last current fixture date (22 November); future postponements require updating that policy. No hosted deployment or new scheduled execution was performed for this feature.
+
+**Next action / checkpoint:** Lorenzo can inspect [Serie B locally](http://127.0.0.1:4173/ultimateciu2026/?division=mixed-b#/) and switch back to A. Proposed subject: `Add Mixed Serie B selection and match evaluation links`, superseding the previous nine-file Valuta-only proposal. Offer to stage/commit the following **19 exact paths** after review, then push/deploy only on Lorenzo's instruction:
+
+```text
+.github/workflows/verify.yml
+.gitignore
+AGENTS.md
+README.md
+docs/IMPLEMENTATION_HANDOFF.md
+importer/__main__.py
+importer/workbook.py
+index.html
+scripts/check-data.mjs
+src/data.js
+src/data.schema.json
+src/divisions.js
+src/divisions.json
+src/main.js
+src/preferences.js
+src/style.css
+tests/frontend.test.mjs
+tests/test_importer.py
+tests/fixtures/source-mixed-b-2026-10-15.xlsx
+```
+
+Generated data, build files, screenshots, raw verification downloads and delayed-server experiments remain ignored. To proceed, Lorenzo can say **“Commit and publish the division selector and Valuta update.”** Inspect the staged diff before committing and verify the resulting two-division Pages deployment. No Pi/server setup is needed.
+
+## Filter-row correction and authorized publication — 15 October 2026
+
+**Authorization:** Lorenzo approved committing and pushing both pending features (Mixed Serie B and Valuta), including this final UI correction. This supersedes the preceding review-only checkpoint instructions. The write scope remains solely `lorenz-gorini/ultimateciu2026`; no homepage/DNS, spreadsheet/form, Pi, credential or access-setting changes are authorized or needed.
+
+Divisione now appears first in the filter row immediately below team search, followed by date, phase, status and reset. It has a teal background/white text, rounded border and explicit selected text (“Divisione: Mixed Serie B”), distinguishing it from the quieter underline filters. The header selector and its obsolete responsive styling are removed. On mobile, Divisione takes a full row while the remaining filters stay compact. The native two-option select is keyboard accessible; focus returns to it after changing divisions. It is also available in the missing/loading-data state, allowing recovery by choosing the other division. On detail/team/pool pages, return to Partite to change division.
+
+The existing project-scoped localStorage preference remembers the last explicit selection. Verification confirmed A→B switches show 56→63 fixtures, focus remains on Divisione, and a fresh visit to the root URL (without a division parameter) restores B. Explicit shared division URLs retain precedence. Separate team histories/caches and the Valuta mapping remain intact.
+
+**Pre-publication verification:** 21 frontend tests, both-live-data build, actionlint on both workflows and `git diff --check` passed after the UI correction. The unchanged importer remains covered by the preceding 27 passing Python tests; the shared deployment job will rerun all 27. At 320px, the schedule's client/scroll widths both equal 305px, Divisione is the first filter and the full label is readable; viewport restored. [Mobile evidence](../work/verification/division-filter-mobile.jpg) is ignored local evidence. GitHub main was checked read-only at `c89f802606350778a586f198bce54256e962ef2f`, equal to local HEAD.
+
+**Checkpoint scope:** the same 19 exact paths listed in the preceding entry, including the preserved Valuta changes and new frozen Serie B fixture. Subject: `Add Mixed Serie B selection and match evaluation links`. Generated JSON/builds/evidence stay excluded. Commit/push and Pages verification are now authorized and in progress; deployment results will be recorded here after completion.
