@@ -2,7 +2,7 @@
 
 ## Current state and next action
 
-**27 October 2026: refresh repair, ±2-hour live polling, match rosters/statistics, elected MVPs and white player cards reviewed locally; split commits and publication authorized, in progress.** Initial 26 October checkout: clean `main` at `d4a6fc1` (last runtime release `a59ce3b`). The 27 October refinements preserve and extend the pending refresh/live-score/player-card worktree. The public site is [CIU Mixed 2026](https://lorenz-gorini.github.io/ultimateciu2026/). Its published data was still dated 21 October when inspected on 26 October, and the latest 27 October scheduled run still uses the older code; this local repair has not been committed, pushed or deployed.
+**27 October 2026: published and verified.** Runtime release `6bfc2928765646efd03d2a4d66ac2123c65b6665` is live at [CIU Mixed 2026](https://lorenz-gorini.github.io/ultimateciu2026/). The importer repair is the preceding scoped commit `37c1b39`. [Pages run 40496910948](https://github.com/lorenz-gorini/ultimateciu2026/actions/runs/40496910948) passed all validation and deployed at **12:34:25 Europe/Rome** (`11:34:25 UTC`). Independent public JSON and browser reads confirm the new finals, match rosters/statistics, total sorting and elected MVPs. Work started from `main` / `d4a6fc1`; the previously pending refinements are now committed and pushed.
 
 Lorenzo reviewed the local refinements and explicitly authorized splitting the changes into commits and publishing on 27 October. He also authorized future project-local checkpoint commits after each completed verified request/feature; pushes and publication remain explicitly requested actions. This standing local-commit policy is recorded in AGENTS.md. The previous executable briefs are superseded by this coherent current record; their full historical evidence remains in Git at `d4a6fc1`. Use README for the single setup/import/test/build/preview procedure.
 
@@ -22,13 +22,13 @@ The viewer remains read-only. Never edit organizer sheets, submit SOTG forms, fa
 
 | Package | Implementation / evidence | Decision or deliverable | State |
 | --- | --- | --- | --- |
-| Repair final-result imports | Distinguish Q report hyperlinks from inherited rows; preserve unnamed statistic rows | New L/N scores reach the normalized datasets without relaxing score validation | Verified locally |
+| Repair final-result imports | Distinguish Q report hyperlinks from inherited rows; preserve unnamed statistic rows | New L/N scores reach the normalized datasets without relaxing score validation | Published; validated |
 | Read live reports | Named LIVE sheet, two bounded CSV ranges, exact identity/date/orientation and goal checks | Provisional scores cannot replace main-sheet finals or contaminate stored data | Verified with real reports and synthetic live transitions |
 | Match players and MVPs | Exact Q-linked LIVE rosters/statistics, presence markers and elected MVPs; total-descending tables | Display actual game data separately from seasonal totals, without inferring attendance or elections | Source/parser/browser checks passed, including all 30 completed reports |
 | Browser refresh | 60-second checks only within ±2 hours, manual/detail exceptions, separate success timestamps | Distinguish final/live/stale scores while avoiding background reads of past/future games | Boundary/DST/midnight tests pass; no real ongoing match observed |
-| Release | Shared existing import/test/build/Pages workflow | Publish both divisions only after all validation succeeds | Authorized; in progress |
+| Release | Shared existing import/test/build/Pages workflow | Publish both divisions only after all validation succeeds | Published and independently verified |
 
-Definition of done for implementation: both live imports and frozen regressions pass; real final/blank reports parse; browser CORS reads work; final precedence, failures, date/team mismatch, reversed sides, zero and stale states are tested; production build succeeds; scoped changes/evidence/limits are documented. Hosted repair is complete only after a separately authorized push and successful deployment, then independent public JSON/browser verification.
+Definition of done for implementation: both live imports and frozen regressions pass; real final/blank reports parse; browser CORS reads work; final precedence, failures, date/team mismatch, reversed sides, zero and stale states are tested; production build succeeds; scoped changes/evidence/limits are documented. Hosted repair is complete: the authorized push/deployment and independent public JSON/browser checks passed. Live event-day update latency remains unobserved, as documented below.
 
 ## Product and source contract
 
@@ -106,7 +106,7 @@ Follow README's local setup/import/test/build/preview commands. Do not introduce
 
 **Cause confirmed:** [scheduled run 40367355501](https://github.com/lorenz-gorini/ultimateciu2026/actions/runs/40367355501) failed with `IMPORT FAILED — previous output preserved: Partite!Q5: unknown carry-over/status marker`. The source now uses Q for report links. The old parser treated every nonempty Q as an inherited marker, stopping new finals from reaching Pages. After accepting the inspected report marker/link contract, Serie B exposed one statistic row with both names missing (`Statistiche!B123:C123`), which also needed nullable-name handling.
 
-| Current live import | Serie A | Serie B |
+| Local pre-release import, 27 October | Serie A | Serie B |
 | --- | ---: | ---: |
 | Teams / fixtures | 12 / 56 | 18 / 63 |
 | Finished L/N results | 12 | 18 |
@@ -120,8 +120,8 @@ The inspected older public snapshots both had zero finished scores, with downloa
 
 Current local verification (Python checks unchanged from 26 October; live imports/frontend/browser checks repeated 27 October):
 
-- Python suite: **29 passing on 26 October** (unchanged Python/schema paths in the 27 October refinement), covering report hyperlinks with finished zero scores, unsafe/missing report links, inherited-row separation, unnamed-player retention, old failure preservation and both frozen fixtures.
-- Frontend suite: **40 passing on 27 October**, discovered through `tests/*.test.mjs`, including the separate match-player source-contract suite. Covers final precedence, live/ended/stale states, reversed orientation, date/identity rejection, approved-only alias, goal progression, blank/zero reports, 60-second eligibility, no credentials, malformed/HTML/HTTP/network failures, changed-fixture retention, live status filtering and earlier division/team/form checks.
+- Python suite: **29 passing in GitHub CI on 27 October** (also passed locally on 26 October), covering report hyperlinks with finished zero scores, unsafe/missing report links, inherited-row separation, unnamed-player retention, old failure preservation and both frozen fixtures.
+- Frontend suite: **40 passing locally and in GitHub CI on 27 October**, discovered through `tests/*.test.mjs`, including the separate match-player source-contract suite. Covers final precedence, live/ended/stale states, reversed orientation, date/identity rejection, approved-only alias, goal progression, blank/zero reports, 60-second eligibility, no credentials, malformed/HTML/HTTP/network failures, changed-fixture retention, live status filtering and earlier division/team/form checks.
 - Fresh anonymous `python -m importer` validates both divisions. `REQUIRE_LIVE_DATA=1 npm run build` passes at the project subpath. Both production JSON files equal their validated live inputs. `git diff --check` passes; workflow files and frozen fixtures are unchanged.
 - Initial score reads: **6/6 reports validate**: A X_1 15–9, A X_6 14–10 with the approved spelling alias, B X_1 13–10, B X_6 15–6, plus valid blank A/B X_7 future reports. The A X_6 main-sheet final and report both read 14–10.
 - Browser: public Google CSV access works from localhost; A X_6 shows 14–10 as final, B X_1 13–10 as final, and B X_7 remains scheduled with no invented score and an explicit not-started report message. Manual Aggiorna reports 1/1 report reads and keeps the Valuta menu open. Inspected console warnings/errors are empty. At 320px, client/scroll widths both equal 320px; viewport restored. The report panel uses a white card for readable text over the field background. [Final screenshot](../work/verification/2026-10-26/local-refresh-report.png) and the running preview are available for review.
@@ -129,7 +129,7 @@ Current local verification (Python checks unchanged from 26 October; live import
 - Match data source checks: **30/30 completed reports** (12 A, 18 B) have readable rosters/statistics; summed individual goals match both main-sheet final scores in all 30. X_3 uses its own Q link and has 18/18 marked presences, X_6 has 21/18. Four B reports (Y_3, Y_6, Z_1, Z_5) have a single unnamed roster entry, now retained with jersey/presence/statistics rather than blocking the report. A future A X_7 report correctly produces two empty rosters.
 - MVP source checks: all 30 completed Statistiche LIVE sheets use the observed literal ` mvp` marker in G. **41 elected MVP marks / 60 team-match observations**; 19 have no mark. X_3 elects Margherita Giovannini and Chiara Alberga; X_6 elects Federico Pickthall and Luca Veroni; B X_1 elects Luigi Geremia and Mattia Tassinato. No winner is inferred for missing marks.
 - Final browser checks: A X_3's two tables have descending totals and the correct highlighted MVPs, including an elected zero-total player. B X_1 displays 11/16 marked presences and both source MVPs. A X_7 shows empty rosters and no inferred MVPs. X_3's historical roster check remained unchanged for more than 60 seconds across automatic cycles; manual refresh remains available. At 320px, page client/scroll widths are both 305px and the first roster table fits its 231px container; viewport restored. Inspected console warnings/errors are empty. [Roster/MVP screenshot](../work/verification/2026-10-27/match-roster-mvp.png).
-- Hosted status checked read-only: [run 40468881156](https://github.com/lorenz-gorini/ultimateciu2026/actions/runs/40468881156), 27 October 07:43:58 UTC, still ran `d4a6fc1` and failed at `Partite!Q5: unknown carry-over/status marker`. The repaired local fresh import passes; publication is still needed to replace the old hosted importer. No dispatch/deployment/settings change was performed.
+- Historical hosted failure confirmed read-only before the release: [run 40468881156](https://github.com/lorenz-gorini/ultimateciu2026/actions/runs/40468881156), 27 October 07:43:58 UTC, still ran `d4a6fc1` and failed at `Partite!Q5: unknown carry-over/status marker`. The subsequent authorized push replaced that importer; the successful release run is recorded below. No manual dispatch or settings change was needed.
 
 
 Raw verification downloads, logs, report checks, screenshots and generated build/data remain ignored under `work/verification/2026-10-26`, `work/verification/2026-10-27`, `public/` and `dist/`. They are local evidence, not release inputs. Frozen XLSX fixtures remain unchanged. No synthetic score or personal roster identifier is added to public assets.
@@ -137,13 +137,18 @@ Raw verification downloads, logs, report checks, screenshots and generated build
 ### Remaining limitations
 
 1. No real ongoing match was observed on 26–27 October. Synthetic reports and controlled clocks verify live transitions and final precedence; actual event-day update latency remains unobserved. Browser timers pause in hidden tabs and resume on visibility. Google CSV/CORS, schema and its own LIVE-sheet propagation can change or fail; the fallback is an explicit unavailable/stale state and the original report link.
-2. Finished results still depend on the main-sheet import/deployment cadence. The repair must be published before hosted imports can succeed. No new hosted run/publication has been performed in this session.
+2. Finished results follow the main-sheet import/deployment cadence. The repaired push-triggered import and deployment have succeeded. No post-release scheduled event has yet been observed; the unchanged best-effort schedule and season cutoff still apply. No action is required for the published release.
 3. Only the confirmed 360 Mlano alias is allowed. Any further name/layout discrepancy is flagged rather than guessed. The five existing A form-prefill issues remain source warnings; users should check fields in Google Forms. No form submission or authenticated form completion was tested.
 4. Report rosters and individual match statistics are now supported; seasonal numbered player-slot mapping remains unestablished and unused. Four completed B reports have an unnamed roster entry; retain the known jersey, presence and statistics with an explicit missing-name label. MVP is not indicated for 19 of 60 inspected team-match observations; never infer a winner. Last-successful check times do not prove organizer edit times.
 
-### Authorized release and checkpoint policy
+### Published commits and future checkpoint policy
 
-Split the release into two feature commits: **`Fix live workbook imports for reports and unnamed players`**, then **`Add match rosters, elected MVPs and bounded live scores`**. A final documentation-only commit will record the hosted verification. Push the feature commits together so the existing Pages workflow tests/deploys their final state once.
+The release was split into two feature commits and pushed together, producing one runtime deployment:
+
+1. [`37c1b39`](https://github.com/lorenz-gorini/ultimateciu2026/commit/37c1b39): **Fix live workbook imports for reports and unnamed players** — source adapter/schema, regressions and its task checkpoint.
+2. [`6bfc292`](https://github.com/lorenz-gorini/ultimateciu2026/commit/6bfc292): **Add match rosters, elected MVPs and bounded live scores** — browser features, player-card readability, tests/documentation and the authorized automatic-local-commit policy.
+
+A final documentation-only checkpoint records this verification with `[skip ci]`; runtime assets remain those deployed from `6bfc292`. Future verified requested changes should receive their own scoped local commit without another permission question. Pushes/deployments still require an explicit request.
 
 Exact release scope (15 files, including the authorized standing commit policy):
 
@@ -165,12 +170,25 @@ tests/match-players.test.mjs
 tests/test_importer.py
 ```
 
-Lorenzo requested **“Fai commit (magari dividi le modifiche se possibile) e pubblica gli aggiornamenti.”** Stage only the exact related files/hunks, inspect each cached diff, commit/push solely to `lorenz-gorini/ultimateciu2026`, and verify the shared import/test/build/Pages run plus independent public JSON/browser reads. No settings/access changes are necessary. Publication evidence will replace this in-progress status after completion.
+Lorenzo requested **“Fai commit (magari dividi le modifiche se possibile) e pubblica gli aggiornamenti.”** The exact files/hunks were staged and cached diffs inspected before each commit. Both feature commits were pushed solely to `lorenz-gorini/ultimateciu2026`; no settings/access changes were made.
 
-Diagnostic GitHub access before publication on 26–27 October was read-only: inspect this repository's recent run statuses and failed workflow logs (official checksum-verified temporary gh CLI, existing sign-in). Public organizer exports and reports were read anonymously. At the diagnostic boundary there had been no remote write. The newly authorized writes are limited to these project commits and their push-triggered Pages deployment. Do not change repository settings/permissions, source sheets/forms, homepage/DNS or Pi.
+**Hosted verification:** policy, build/verify and deploy jobs all succeeded on `6bfc292`. CI ran **29 Python tests and 40 frontend tests**, freshly imported both public main workbooks, built/uploaded the validated artifact and deployed it. Existing runner-image/action-runtime notices were nonblocking. Independently downloaded public JSON validates with the shared schema:
+
+| Public dataset | Serie A | Serie B |
+| --- | ---: | ---: |
+| Teams / fixtures | 12 / 56 | 18 / 63 |
+| Finished results / report links | 12 / 56 | 18 / 63 |
+| Actual download UTC, 27 October | 11:34:02.483332 | 11:34:04.612558 |
+| Mode | live | live |
+
+Public HTML serves `/ultimateciu2026/assets/index-Do9EEd4A.js`, containing the new MVP interface. The production browser verified A X_3's 15–8 final, 18/18 presences, descending totals and MVPs Margherita Giovannini / Chiara Alberga; B X_1 shows its 13–10 final, 11/16 presences and elected Luigi Geremia / Mattia Tassinato. Actual Google CSV reads work from the public HTTPS origin. Aggiorna successfully reports 1/1 report checks without claiming a newer main snapshot when none exists. Inspected console warnings/errors are empty. [Published screenshot](../work/verification/2026-10-27/release/published-mvp.png); run metadata/logs and independent public downloads are ignored local evidence in that same release directory.
+
+**Next action:** Lorenzo can use/share the live site. Reload older open tabs to load the new interface. No decision or rerun is required for this release.
+
+Diagnostic GitHub access before publication on 26–27 October was read-only: inspect this repository's recent run statuses and failed workflow logs (official checksum-verified temporary gh CLI, existing sign-in). Public organizer exports and reports were read anonymously. Actual authorized GitHub writes were the two scoped feature commits/push, the push-triggered existing Pages deployment, and the following documentation-only verification commit/push. No manual dispatch, repository/settings/permission or credential change, source-sheet/form submission, homepage/DNS or Pi change occurred.
 
 ## Historical publication evidence (non-executable)
 
 - Initial project publication authorized 13 October; later team-picker/background/seasonal-refresh refinements reviewed and released. Earlier designs and local-only plans are preserved in Git history, not active alternatives.
 - Two successful scheduled executions of the revised seasonal policy on 15 October: [38681672377](https://github.com/lorenz-gorini/ultimateciu2026/actions/runs/38681672377), [38715763802](https://github.com/lorenz-gorini/ultimateciu2026/actions/runs/38715763802). They establish execution, not guaranteed weekend latency.
-- Last runtime release: `a59ce3b6377695ce71709ed2f404e4672dbee019`, Mixed Serie B, directional Valuta and filter-row division selector. Authorized [push deployment 38746020883](https://github.com/lorenz-gorini/ultimateciu2026/actions/runs/38746020883) succeeded 15 October at 15:51:31 Rome; 27 Python and 21 frontend tests passed then. Documentation checkpoint `d4a6fc1` followed with skip-ci. The 27 October release has its own explicit authorization above.
+- Previous runtime release: `a59ce3b6377695ce71709ed2f404e4672dbee019`, Mixed Serie B, directional Valuta and filter-row division selector. Authorized [push deployment 38746020883](https://github.com/lorenz-gorini/ultimateciu2026/actions/runs/38746020883) succeeded 15 October at 15:51:31 Rome; 27 Python and 21 frontend tests passed then. Documentation checkpoint `d4a6fc1` followed with skip-ci. The 27 October release has its own explicit authorization above.

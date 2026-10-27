@@ -48,7 +48,7 @@ Run these commands **from this project folder**. Local validation used Node 26.0
 
 ## Refresh and deployment
 
-Publication evidence, current deployment status and remaining hosted checks are recorded in the [handoff](docs/IMPLEMENTATION_HANDOFF.md).
+The refresh repair, report rosters/MVPs and bounded live updates were published and independently verified on 27 October 2026. Publication evidence and remaining source limitations are recorded in the [handoff](docs/IMPLEMENTATION_HANDOFF.md).
 
 The teal Divisione selector is the first control in the filter row below team search, followed by date, phase and status. It keeps the same views and styling for both competitions. It remembers the last choice on this device. Cached JSON, selected teams and recent teams are isolated by division, retaining the existing Serie A preferences. Switching starts at the chosen division's schedule and resets the secondary filters; saved team choices are restored. Late responses from a previous division are ignored. Source links and timestamps follow the active division. Serie B has three initial groups and six placement power pools, with no knockout stage or inherited matches; views use the actual normalized structure rather than copying Serie A's bracket.
 
