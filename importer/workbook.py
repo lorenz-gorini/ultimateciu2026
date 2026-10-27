@@ -226,8 +226,15 @@ def parse_workbook(payload: bytes, fetched_at: str, source_mode: str = "live", *
     matches, carryovers = [], []
     for row in range(5, cached[names[1]].max_row + 1):
         match_id, marker = games.get(row, 9), games.get(row, 17)
-        if marker is not None:
-            require(marker == "ereditata" and match_id is None, f"Partite!Q{row}: unknown carry-over/status marker")
+        require(marker in (None, "report", "ereditata"), f"Partite!Q{row}: unknown report/carry-over marker")
+        report_url = None
+        if marker == "report":
+            require(match_id is not None, f"Partite!Q{row}: report without match ID")
+            report_url = games.hyperlink(row, 17)
+            require(report_url is not None and re.fullmatch(r"https://docs\.google\.com/spreadsheets/d/[A-Za-z0-9_-]+/edit(?:[?#][^\s]*)?", report_url),
+                    f"Partite!Q{row}: expected a public Google Sheets report link")
+        if marker == "ereditata":
+            require(match_id is None, f"Partite!Q{row}: inherited row has a match ID")
             pool = second_pool_by_row.get(row)
             require(pool is not None, "Carry-over outside second phase")
             carryovers.append({"pool": pool,
@@ -258,7 +265,8 @@ def parse_workbook(payload: bytes, fetched_at: str, source_mode: str = "live", *
                         "field": string(games.get(row, 8), f"H{row}", optional=True),
                         "a": participant(games.get(row, 10), games.get(row, 11), f"J{row}"),
                         "b": participant(games.get(row, 16), games.get(row, 15), f"P{row}"),
-                        "score": score, "resultState": state, "provenance": provenance(names[1], f"B{row}:U{row}")})
+                        "score": score, "resultState": state, "reportUrl": report_url,
+                        "provenance": provenance(names[1], f"B{row}:U{row}")})
 
     pools = []
     pool_specs = [(pool, f"Girone {pool}", rows, 2, "first") for pool, rows in layout["initial"]]
@@ -311,8 +319,10 @@ def parse_workbook(payload: bytes, fetched_at: str, source_mode: str = "live", *
         if all(value is None for value in values):
             continue
         require(values[0] in by_name, f"Statistiche row {row}: unknown or missing team")
-        players.append({"teamId": by_name[values[0]], "surname": string(values[1], f"B{row}"),
-                        "givenName": string(values[2], f"C{row}"),
+        # The organizer can publish totals before filling a player's name.
+        # Preserve the row and missing identity instead of dropping its statistics.
+        players.append({"teamId": by_name[values[0]], "surname": string(values[1], f"B{row}", optional=True),
+                        "givenName": string(values[2], f"C{row}", optional=True),
                         "assists": numeric(values[13], f"N{row}", integer=True), "goals": numeric(values[14], f"O{row}", integer=True),
                         "total": numeric(values[15], f"P{row}", integer=True),
                         "matchSlots": [None if value is None else str(value) for value in values[3:13]],

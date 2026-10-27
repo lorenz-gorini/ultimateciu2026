@@ -4,6 +4,8 @@ Prepared 13 October 2026; local implementation, validation and authorized public
 
 ## Start here
 
+**27 October 2026 source-import checkpoint:** the organizer now uses Partite Q for report hyperlinks as well as inherited-result markers. The repaired adapter preserves the safe exact report URL, keeps L/N finished scores authoritative, and retains player totals when the source leaves names blank. Both current division imports validate (12 A and 18 B finished results); the frozen/synthetic importer suite has 29 passing cases. The browser regression query now uses the source's canonical team name, including the corrected 360 Milano spelling. Match-report UI refinements are the next scoped commit, and Lorenzo has authorized their combined publication. Previous published-runtime evidence below remains historical.
+
 **Current state: published and verified on 15 October 2026.** Both Mixed divisions, match-specific Valuta links and the teal Divisione control at the start of the filter row are live at runtime checkpoint `a59ce3b6377695ce71709ed2f404e4672dbee019`. See [Filter-row correction and authorized publication](#filter-row-correction-and-authorized-publication--15-october-2026) for the latest deployment/access evidence and remaining source limitations. Earlier local-only states and checkpoint proposals below are historical and superseded by Lorenzo's publication authorization.
 
 **Latest UI correction:** Divisione is first in the filter row below team search, highlighted in teal; the header contains branding/navigation/freshness. [Single team shortcuts](#single-team-shortcuts--14-october-2026) remains authoritative for the team picker.

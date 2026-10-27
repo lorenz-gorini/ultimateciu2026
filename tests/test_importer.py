@@ -118,6 +118,37 @@ class ImporterTests(unittest.TestCase):
         self.assertIsNone(games["X_2"]["score"]["b"])
         self.assertEqual(games["X_3"]["resultState"], "none")
 
+    def test_synthetic_report_marker_preserves_link_and_finished_score(self) -> None:
+        book = openpyxl.load_workbook(io.BytesIO(self.payload))
+        sheet = book["Partite"]
+        sheet["Q5"] = "report"
+        url = "https://docs.google.com/spreadsheets/d/SYNTHETIC_REPORT/edit?gid=123#gid=123"
+        sheet["Q5"].hyperlink = url
+        sheet["L5"], sheet["N5"] = 0, 15
+        buffer = io.BytesIO()
+        book.save(buffer)
+        data = parse_workbook(buffer.getvalue(), TEST_TIME)
+        self.assertEqual(len(data["carryovers"]), 6)
+        self.assertEqual(data["matches"][0]["reportUrl"], url)
+        self.assertEqual(data["matches"][0]["score"], {"a": 0, "b": 15})
+        self.assertEqual(data["matches"][0]["resultState"], "complete")
+        for unsafe in (None, "javascript:alert(1)", "https://example.com/report"):
+            sheet["Q5"].hyperlink = unsafe
+            buffer = io.BytesIO()
+            book.save(buffer)
+            with self.subTest(unsafe=unsafe), self.assertRaises(ImportFailure):
+                parse_workbook(buffer.getvalue(), TEST_TIME)
+        book.close()
+
+    def test_synthetic_unnamed_player_totals_are_preserved(self) -> None:
+        data = parse_workbook(synthetic_workbook({"Statistiche": {
+            "A3": "BFD Redshot", "N3": 3, "O3": 0, "P3": 3}}), TEST_TIME)
+        self.assertIsNone(data["players"][0]["surname"])
+        self.assertIsNone(data["players"][0]["givenName"])
+        self.assertEqual(data["players"][0]["total"], 3)
+        with self.assertRaises(ImportFailure):
+            parse_workbook(synthetic_workbook({"Statistiche": {"A3": "BFD Redshot", "B3": 99}}), TEST_TIME)
+
     def test_synthetic_opposite_sotg_directions(self) -> None:
         cells = {f"{column}{row}": 0 for row in (2, 3) for column in "GHIJKL"}
         cells["M2"] = "SYNTHETIC <script>test</script>"

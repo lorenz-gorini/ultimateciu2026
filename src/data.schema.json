@@ -195,6 +195,10 @@
           "resultState": {
             "enum": ["none", "partial", "complete"]
           },
+          "reportUrl": {
+            "type": ["string", "null"],
+            "pattern": "^https://docs\\.google\\.com/spreadsheets/d/[A-Za-z0-9_-]+/edit(?:[?#][^\\s]*)?$"
+          },
           "provenance": {
             "type": "object",
             "required": ["sheet", "range"],
@@ -500,10 +504,10 @@
             "type": "string"
           },
           "surname": {
-            "type": "string"
+            "type": ["string", "null"]
           },
           "givenName": {
-            "type": "string"
+            "type": ["string", "null"]
           },
           "assists": {
             "type": ["integer", "null"],

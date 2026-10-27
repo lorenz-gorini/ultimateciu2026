@@ -49,7 +49,7 @@ test("case and accent-insensitive search preserves canonical spelling", () => {
   assert.equal(normalizeSearch("MÌLÀNO"), "milano");
   for (const [query, id] of [
     ["bfd REDSHOT", "x1"],
-    ["360 Mlano", "x6"],
+    [data.teams.find((team) => team.id === "x6").name, "x6"],
   ]) {
     assert.deepEqual(
       filterMatches(data, { search: query }, now)
