@@ -1,4 +1,6 @@
 import "./style.css";
+import { REPORT_INTERVAL, inReportWindow, reportContext, reportView, requestReport, shouldCheckReport } from "./reports.js";
+import { requestMatchPlayers, shouldCheckMatchPlayers } from "./match-players.js";
 import { DIVISIONS, DIVISION_KEY, initialDivision, cacheKey } from "./divisions.js";
 import {
   PHASES,
@@ -6,10 +8,10 @@ import {
   filterMatches,
   evaluationFormOptions,
   formatDate,
-  matchState,
   normalizeSearch,
   publicationIsStale,
   requestData,
+  sortPlayersByTotal,
   validateData,
 } from "./data.js";
 import {
@@ -28,6 +30,10 @@ const filters = { search: "", teamIds: [], date: "", phase: "", status: "" };
 let division = initialDivision(window.location.search, preferenceStorage());
 let divisionRevision = 0;
 const snapshots = new Map();
+const reports = new Map();
+const playerReports = new Map();
+const pendingReports = new Set();
+let reportTimer;
 let data = null;
 let error = null;
 let busy = false;
@@ -124,8 +130,21 @@ const participant = (side) =>
     ? teamLink(side.teamId)
     : `<span class="slot" title="Qualificazione non ancora risolta">${escape(side.slot)}</span>`;
 const shown = (value) => (value === null ? "—" : escape(value));
-const score = (match) =>
-  `${shown(match.score.a)} <span aria-hidden="true">–</span> ${shown(match.score.b)}`;
+const playerName = (player) => [player.givenName, player.surname].filter(Boolean).join(" ") || "Nome non indicato nella fonte";
+const reportKey = (match) => `${division}:${match.id}`;
+const reportAliases = () => DIVISIONS[division].reportTeamAliases || {};
+const currentEntry = (entries, match) => {
+  const entry = entries.get(reportKey(match));
+  return entry?.context === reportContext(match, data.teams, reportAliases()) ? entry : null;
+};
+const currentReport = (match) => currentEntry(reports, match);
+const currentPlayers = (match) => currentEntry(playerReports, match);
+const resultView = (match, now) => reportView(match, currentReport(match), now);
+const resultState = (match, now) => resultView(match, now).state;
+const score = (match) => {
+  const value = resultView(match).score;
+  return `${shown(value.a)} <span aria-hidden="true">–</span> ${shown(value.b)}`;
+};
 const location = (match) =>
   `${escape(match.city || "Luogo da definire")} · ${escape(match.field || "Campo da definire")}`;
 const timestamp = (iso) =>
@@ -158,7 +177,7 @@ function renderFreshness() {
   const restoreInfo = freshness.querySelector(".refresh-info")?.open;
   freshness.innerHTML = `<div class="freshness-meta"><p class="download">${data ? `Download: <strong>${escape(timestamp(data.fetchedAt))}</strong> <span class="age">· ${ageText()}</span>` : "Nessun download disponibile"}</p>
     <p class="source-updated">Foglio: <strong>${escape(timestamp(data?.sourceReportedAt))}</strong>${data?.sourceMode === "frozen" ? " · Copia locale" : ""}</p>
-    <details class="refresh-info" ${restoreInfo ? "open" : ""}><summary>Come funziona Aggiorna</summary><p>Aggiorna legge l’ultima copia pubblicata. Il foglio viene importato separatamente; gli aggiornamenti possono arrivare in ritardo.</p></details>
+    <details class="refresh-info" ${restoreInfo ? "open" : ""}><summary>Come funziona Aggiorna</summary><p>Aggiorna legge l’ultima copia pubblicata del calendario e ricontrolla il report della partita aperta. GitHub importa il foglio principale ogni 15 minuti nel weekend e ogni ora nei feriali, con possibili ritardi. Il controllo automatico dei report avviene ogni 60 secondi solo tra 2 ore prima e 2 ore dopo l’inizio previsto, mentre questa scheda è visibile, e si ferma a fine partita. Roster e statistiche vengono letti anche all’apertura del dettaglio. Il risultato finale viene dalle colonne L–N di Partite.</p></details>
     ${error ? `<p role="alert" class="error">Aggiornamento non riuscito. ${data ? `Dati conservati (${ageText()}).` : "Riprova con Aggiorna."} <span class="muted">${escape(error)}</span></p>` : ""}</div>
     <button id="refresh" ${busy ? "disabled" : ""}>${busy ? "Aggiornamento…" : "Aggiorna"}</button>`;
   document.querySelector("#refresh").addEventListener("click", () =>
@@ -169,14 +188,128 @@ function renderFreshness() {
 }
 
 function fixture(match) {
-  const state = matchState(match);
   return `<article class="fixture" data-match="${escape(match.id)}">
     <div class="fixture-time"><time>${escape(match.start || "Da definire")}</time><span>${escape(match.end || "")}</span></div>
     <div class="fixture-teams">${participant(match.a)}<span class="versus">vs</span>${participant(match.b)}</div>
-    <div class="fixture-result"><strong class="score">${score(match)}</strong><span class="status ${state}">${STATES[state]}</span></div>
+    <div class="fixture-result" data-result="${escape(match.id)}">${resultMarkup(match)}</div>
     <div class="fixture-place"><span>${location(match)}</span><span>${PHASES[match.phase]}${match.pool ? ` · ${escape(data.pools.find((pool) => pool.id === match.pool)?.name || match.pool)}` : ""}</span></div>
     <a class="detail-link" href="#/match/${encodeURIComponent(match.id)}" aria-label="Dettagli ${escape(match.id)}">${escape(match.id)} <span aria-hidden="true">↗</span></a>
   </article>`;
+}
+
+function resultMarkup(match, detail = false) {
+  const state = resultState(match);
+  const entry = currentReport(match);
+  const checked = ["live", "provisional", "report-stale"].includes(state) && entry?.checkedAt
+    ? `<small class="report-checked">Report: ${escape(timestamp(entry.checkedAt))}</small>` : "";
+  return `<strong class="${detail ? "big-score" : "score"}">${score(match)}</strong><span class="status ${state}">${STATES[state]}</span>${checked}`;
+}
+
+function reportMarkup(match) {
+  if (!match.reportUrl) return '<p class="muted">Report non ancora disponibile nella fonte.</p>';
+  const entry = currentReport(match);
+  return `<a class="button-link secondary" href="${escape(match.reportUrl)}" target="_blank" rel="noopener noreferrer">Foglio di gara ↗</a>
+    <p class="muted">${match.resultState === "complete" ? "Risultato finale dalle colonne L–N di Partite; il report non lo sostituisce." : "Parziale provvisorio dal Foglio di gara (LIVE). Il risultato è definitivo solo quando compare in Partite."} Controllo automatico ogni 60 secondi nella finestra di ±2 ore dall’inizio previsto, fino a fine partita.</p>
+    <p class="muted">${entry?.checkedAt ? `Punteggio nel report verificato: ${escape(timestamp(entry.checkedAt))}.` : entry?.error ? "Nessuna lettura valida del punteggio nel report." : match.resultState === "complete" || !inReportWindow(match) ? "Controllo automatico del punteggio non attivo per questa partita. Puoi richiederlo con Aggiorna." : "Controllo del punteggio nel report…"}${entry?.report && !entry.report.start ? " Il report non indica ancora l’inizio della partita." : ""}</p>
+    ${entry?.error ? `<p class="form-warning" role="status">Verifica report non riuscita: ${escape(entry.error)}. ${match.resultState === "complete" ? "Il risultato finale del calendario resta valido." : entry.report?.score ? "Ultimo parziale conservato e indicato come non live." : "Consulta il foglio originale."}</p>` : ""}`;
+}
+
+/** Patch score regions only, preserving focused controls and open evaluation menus. */
+function updateReportDisplay() {
+  if (!data) return;
+  const active = content.contains(document.activeElement) ? document.activeElement : null;
+  const focusedHref = active?.getAttribute("href");
+  if (locationHash() === "/" && filters.status) updateMatches();
+  content.querySelectorAll("[data-team-states]").forEach((node) => {
+    const states = node.dataset.teamStates.split(",");
+    const matches = filterMatches(data, {}).filter((match) => states.includes(resultState(match))
+      && [match.a.teamId, match.b.teamId].includes(node.dataset.team));
+    const membership = matches.map((match) => match.id).join(",");
+    if (node.dataset.members !== membership) {
+      node.innerHTML = fixtureGroups(matches);
+      node.dataset.members = membership;
+    }
+  });
+  content.querySelectorAll("[data-result]").forEach((node) => {
+    const match = data.matches.find((candidate) => candidate.id === node.dataset.result);
+    if (match) node.innerHTML = resultMarkup(match, node.dataset.detail === "true");
+  });
+  const panel = document.querySelector("#match-report");
+  if (panel) {
+    const match = data.matches.find((candidate) => candidate.id === panel.dataset.match);
+    const markup = reportMarkup(match);
+    if (panel.innerHTML !== markup) panel.innerHTML = markup;
+  }
+  const playersPanel = document.querySelector("#match-players");
+  if (playersPanel) {
+    const match = data.matches.find((candidate) => candidate.id === playersPanel.dataset.match);
+    const markup = matchPlayersMarkup(match);
+    if (playersPanel.dataset.renderedMarkup !== markup) {
+      const openTeams = [...playersPanel.querySelectorAll("details[open]")].map((node) => node.dataset.team);
+      const focusedTeam = active?.tagName === "SUMMARY" ? active.parentElement.dataset.team : null;
+      playersPanel.innerHTML = markup;
+      playersPanel.dataset.renderedMarkup = markup;
+      playersPanel.querySelectorAll("details").forEach((node) => { node.open = openTeams.includes(node.dataset.team); });
+      if (focusedTeam) [...playersPanel.querySelectorAll("details")].find((node) => node.dataset.team === focusedTeam)
+        ?.querySelector("summary").focus({ preventScroll: true });
+    }
+  }
+  if (active && !active.isConnected && focusedHref) {
+    [...content.querySelectorAll("a[href]")].find((link) => link.getAttribute("href") === focusedHref)?.focus({ preventScroll: true });
+  }
+}
+
+async function refreshReports({ manual = false } = {}) {
+  if (!data || document.hidden) return { count: 0, failed: 0 };
+  const requestedData = data, revision = divisionRevision;
+  const openId = locationHash().startsWith("/match/") ? decodeURIComponent(locationHash().split("/")[2]) : null;
+  const candidates = data.matches.map((match) => ({ match,
+    scores: shouldCheckReport(match, currentReport(match), new Date(), manual && match.id === openId),
+    players: match.id === openId && shouldCheckMatchPlayers(match, currentPlayers(match), currentReport(match), new Date(), manual),
+  })).filter((task) => !pendingReports.has(reportKey(task.match)) && (task.scores || task.players));
+  const keys = candidates.map((task) => reportKey(task.match));
+  keys.forEach((key) => pendingReports.add(key));
+  const check = async ({ match, scores, players }) => {
+    const key = reportKey(match);
+    try {
+      const options = { aliases: reportAliases() };
+      const [scoreEntry, playerEntry] = await Promise.all([
+        scores ? requestReport(match, requestedData.teams, currentReport(match), options) : null,
+        players ? requestMatchPlayers(match, requestedData.teams, currentPlayers(match), options) : null,
+      ]);
+      if (revision === divisionRevision && requestedData === data) {
+        if (scoreEntry) reports.set(key, scoreEntry);
+        if (playerEntry) playerReports.set(key, playerEntry);
+      }
+      return scoreEntry?.error || playerEntry?.error;
+    } finally { pendingReports.delete(key); }
+  };
+  const outcomes = [];
+  let next = 0;
+  // At most four reports (eight small CSV requests) in flight at once.
+  await Promise.all(Array.from({ length: Math.min(4, candidates.length) }, async () => {
+    while (next < candidates.length && revision === divisionRevision) {
+      outcomes.push(await check(candidates[next++]));
+    }
+  }));
+  keys.forEach((key) => pendingReports.delete(key));
+  if (revision === divisionRevision) updateReportDisplay();
+  clearTimeout(reportTimer);
+  if (data && !document.hidden) {
+    // Keep each report's 60-second cadence independent of JSON checks/navigation.
+    const now = Date.now();
+    const nextOpenId = locationHash().startsWith("/match/") ? decodeURIComponent(locationHash().split("/")[2]) : null;
+    const later = new Date(now + REPORT_INTERVAL);
+    const delays = data.matches.flatMap((match) => {
+      const entries = [];
+      if (shouldCheckReport(match, currentReport(match), later)) entries.push(currentReport(match));
+      if (match.id === nextOpenId && shouldCheckMatchPlayers(match, currentPlayers(match), currentReport(match), later))
+        entries.push(currentPlayers(match));
+      return entries.map((entry) => entry ? Math.max(1000, entry.attemptedAt + REPORT_INTERVAL - now) : REPORT_INTERVAL);
+    });
+    reportTimer = setTimeout(() => refreshReports(), Math.min(REPORT_INTERVAL, ...delays));
+  }
+  return { count: candidates.length, failed: outcomes.filter(Boolean).length };
 }
 
 function fixtureGroups(matches, anchors = false) {
@@ -353,7 +486,7 @@ function resetFilters() {
 }
 
 function updateMatches() {
-  const matches = filterMatches(data, filters);
+  const matches = filterMatches(data, filters, new Date(), resultState);
   document.querySelector("#match-count").textContent =
     `${matches.length} di ${data.matches.length} partite · Gli slot indicano qualificazioni ancora da risolvere.`;
   document.querySelector("#match-list").innerHTML = matches.length
@@ -387,8 +520,35 @@ function updateTeams() {
 
 function playersTable(players) {
   return players.length
-    ? `<div class="table-scroll"><table><caption>Giocatori pubblicati nella fonte · totali stagionali</caption><thead><tr><th>Giocatore</th><th>Assist</th><th>Mete</th><th>Totale</th></tr></thead><tbody>${players.map((player) => `<tr><td>${escape(player.givenName)} ${escape(player.surname)}</td><td>${shown(player.assists)}</td><td>${shown(player.goals)}</td><td>${shown(player.total)}</td></tr>`).join("")}</tbody></table></div>`
+    ? `<div class="table-scroll"><table><caption>Giocatori pubblicati nella fonte · totali stagionali</caption><thead><tr><th>Giocatore</th><th>Assist</th><th>Mete</th><th aria-sort="descending">Totale</th></tr></thead><tbody>${sortPlayersByTotal(players).map((player) => `<tr><td>${escape(playerName(player))}</td><td>${shown(player.assists)}</td><td>${shown(player.goals)}</td><td>${shown(player.total)}</td></tr>`).join("")}</tbody></table></div>`
     : empty("Nessun giocatore ancora pubblicato nella fonte.");
+}
+
+function matchRosterTable(players, caption) {
+  return `<div class="table-scroll"><table class="roster-table"><caption>${escape(caption)}</caption>
+    <thead><tr><th scope="col">N°</th><th scope="col">Giocatore</th><th scope="col">Assist</th><th scope="col">Mete</th><th scope="col" aria-sort="descending">Totale</th></tr></thead>
+    <tbody>${sortPlayersByTotal(players).map((player) => `<tr${player.mvp ? ' class="mvp-row"' : ""}><td>${shown(player.number)}</td><td>${escape(playerName(player))}${player.mvp ? '<span class="mvp-badge" title="MVP eletto e indicato nel report">MVP</span>' : ""}</td><td>${shown(player.assists)}</td><td>${shown(player.goals)}</td><td>${shown(player.total)}</td></tr>`).join("")}</tbody></table></div>`;
+}
+
+function matchPlayersMarkup(match) {
+  const heading = "<h2>Giocatori della partita</h2>";
+  if (!match.reportUrl) return `${heading}${empty("Roster e statistiche non ancora collegati nella fonte.")}`;
+  const entry = currentPlayers(match);
+  const status = entry?.checkedAt ? `Roster e statistiche verificati: ${escape(timestamp(entry.checkedAt))}.`
+    : entry?.error ? "Nessuna lettura valida di roster e statistiche." : "Caricamento di roster e statistiche dal report…";
+  const warning = entry?.error ? `<p class="form-warning" role="status">${escape(entry.error)}. ${entry.data ? "Ultima lettura valida conservata." : "Riprova con Aggiorna o consulta il Foglio di gara."}</p>` : "";
+  const rosters = entry?.data?.rosters.map((roster) => {
+    const present = roster.players.filter((player) => player.present === true);
+    const unmarked = roster.players.filter((player) => player.present !== true);
+    const mvps = roster.players.filter((player) => player.mvp);
+    return `<article class="match-roster"><h3>${teamLink(roster.teamId)} <span class="muted">${present.length} presenze segnate</span></h3>
+      <p class="mvp-summary">${mvps.length ? `<strong>MVP:</strong> ${mvps.map((player) => escape(playerName(player))).join(", ")}` : "MVP non indicato nel report."}</p>
+      ${present.length ? matchRosterTable(present, "Presenze segnate nel report · statistiche della partita")
+        : empty(roster.players.length ? "Il report non indica ancora le presenze." : "Roster non ancora compilato nel report.")}
+      ${unmarked.length ? `<details data-team="${escape(roster.teamId)}"><summary>Altri nomi nel roster: ${unmarked.length} · presenza non segnata</summary>${matchRosterTable(unmarked, "Presenza non segnata nel report")}</details>` : ""}</article>`;
+  }).join("") || "";
+  return `${heading}<p class="muted">${status}</p>${warning}${rosters}
+    ${entry?.data ? '<p class="muted">— = dato non pubblicato. Le presenze sono quelle segnate nel report; i nomi senza segno non sono considerati assenti. Assist, mete e totale si riferiscono a questa partita.</p>' : ""}`;
 }
 
 function teamPage(id) {
@@ -402,12 +562,17 @@ function teamPage(id) {
       .filter((entry) => entry.teamId === id)
       .map((entry) => ({ ...entry, name: pool.name })),
   );
+  const group = (states) => {
+    const selected = matches.filter((match) => states.includes(resultState(match)));
+    return `<div data-team="${escape(id)}" data-team-states="${states.join(",")}" data-members="${selected.map((match) => match.id).join(",")}">${fixtureGroups(selected)}</div>`;
+  };
   content.innerHTML = `<a class="back" href="#/teams">← Tutte le squadre</a><div class="page-title"><div><p class="eyebrow">Girone ${selected.pool} · Slot ${selected.slot}</p><h1>${escape(selected.name)}</h1><p>${escape(selected.affiliation)} · ${escape(selected.province)}</p></div></div>
     <section><h2>Statistiche dei gironi</h2><div class="stats-line">${entries.map((entry) => `<div><strong>${escape(entry.name)}</strong><p>${shown(entry.points)} punti · ${shown(entry.goalsFor)} mete fatte · ${shown(entry.goalsAgainst)} subite</p></div>`).join("")}</div><p class="muted">Ordine e valori dal foglio; i punti iniziali a zero non determinano qualificazioni.</p></section>
-    <section><h2>In programma</h2>${fixtureGroups(matches.filter((match) => ["scheduled", "unresolved"].includes(matchState(match))))}</section>
-    <section><h2>Risultati registrati</h2>${fixtureGroups(matches.filter((match) => matchState(match) === "complete"))}</section>
-    <section><h2>Risultati incompleti o non disponibili</h2>${fixtureGroups(matches.filter((match) => ["partial", "unreported"].includes(matchState(match))))}</section>
-    <section><h2>Giocatori e statistiche</h2><p class="muted">Elenco della squadra pubblicato nella fonte, non roster verificato di una partita.</p>${playersTable(data.players.filter((player) => player.teamId === id))}<p>Roster non disponibile nella fonte. Statistiche individuali per partita non disponibili: gli slot numerati non sono associati agli ID delle partite.</p></section>`;
+    <section><h2>In programma</h2>${group(["scheduled", "unresolved"])}</section>
+    <section><h2>Parziali dal report</h2>${group(["live", "provisional", "report-stale"])}</section>
+    <section><h2>Risultati registrati</h2>${group(["complete"])}</section>
+    <section><h2>Risultati incompleti o non disponibili</h2>${group(["partial", "unreported"])}</section>
+    <section class="players-section"><h2>Giocatori e statistiche</h2><p class="muted">Elenco della squadra pubblicato nella fonte, non roster verificato di una partita.</p>${playersTable(data.players.filter((player) => player.teamId === id))}<p>Questi sono totali stagionali. Apri una partita per consultare le presenze e le statistiche disponibili nel suo report.</p></section>`;
 }
 
 function slotMeaning(slot) {
@@ -437,7 +602,6 @@ function evaluationFormControl(forms) {
 function matchPage(id) {
   const match = data.matches.find((candidate) => candidate.id === id);
   if (!match) return unknown();
-  const state = matchState(match);
   const forms = evaluationFormOptions(data, id);
   const evaluations = data.sotg.filter(
     (evaluation) =>
@@ -447,7 +611,8 @@ function matchPage(id) {
       ),
   );
   content.innerHTML = `<a class="back" href="#/">← Torna alle partite</a><p class="eyebrow">${escape(id)} · ${PHASES[match.phase]}</p><h1 class="match-heading">${participant(match.a)}<span>vs</span>${participant(match.b)}</h1>
-    <div class="match-summary"><strong class="big-score">${score(match)}</strong><div><p class="status ${state}">${STATES[state]}</p><p>${escape(formatDate(match.date))} · ${escape(match.start || "Orario da definire")}${match.end ? `–${escape(match.end)}` : ""}</p><p>${location(match)}</p></div></div>
+    <div class="match-summary"><div class="match-result" data-result="${escape(id)}" data-detail="true" aria-live="polite">${resultMarkup(match, true)}</div><div><p>${escape(formatDate(match.date))} · ${escape(match.start || "Orario da definire")}${match.end ? `–${escape(match.end)}` : ""}</p><p>${location(match)}</p></div></div>
+    <section id="match-report" data-match="${escape(id)}" aria-label="Aggiornamento report">${reportMarkup(match)}</section>
     ${[match.a, match.b]
       .filter((side) => !side.teamId)
       .map(
@@ -460,12 +625,7 @@ function matchPage(id) {
       ${!forms.length ? '<p class="muted">Link di valutazione non disponibile nella fonte.</p>' : ""}
       ${evaluations.length ? evaluations.map((evaluation) => `<article class="evaluation"><h3>${teamLink(evaluation.evaluatingTeamId)} valuta ${teamLink(evaluation.evaluatedTeamId)}</h3><dl>${data.sotgCategories.map((category, index) => `<div><dt>${escape(category)}</dt><dd>${shown(evaluation.categories[index])}</dd></div>`).join("")}<div class="total"><dt>Totale</dt><dd>${shown(evaluation.total)}</dd></div></dl><p>${evaluation.comment === null ? "Commento non pubblicato" : escape(evaluation.comment)}</p></article>`).join("") : empty("Valutazioni non ancora pubblicate")}
       ${evaluations.length === 1 ? '<p class="muted">L’altra valutazione non è ancora pubblicata.</p>' : ""}</section>
-    <section><h2>Giocatori della partita</h2>${empty("Roster non disponibile nella fonte")}<p>Statistiche individuali per questa partita non disponibili. Gli elenchi e i totali stagionali delle squadre sono consultabili nelle pagine ${
-      [match.a, match.b]
-        .filter((side) => side.teamId)
-        .map((side) => teamLink(side.teamId))
-        .join(" e ") || "delle squadre, quando risolte"
-    }.</p></section>
+    <section class="players-section" id="match-players" data-match="${escape(id)}">${matchPlayersMarkup(match)}</section>
     <p class="muted">Fonte: ${escape(match.provenance.sheet)}!${escape(match.provenance.range)} · <a href="${data.sourceUrl}?gid=1898128397&range=${encodeURIComponent(match.provenance.range)}" target="_blank" rel="noopener noreferrer">Vedi nel foglio ↗</a></p>`;
 }
 
@@ -562,7 +722,6 @@ async function refresh({ manual = false } = {}) {
     result.data && JSON.stringify(result.data) !== JSON.stringify(data);
   data = result.data;
   error = result.error;
-  busy = false;
   if (manual) {
     const checkedAt = new Intl.DateTimeFormat("it-IT", {
       timeZone: "Europe/Rome",
@@ -593,6 +752,13 @@ async function refresh({ manual = false } = {}) {
     }
   } else if (!data) render();
   renderFreshness();
+  const reportResult = await refreshReports({ manual });
+  if (revision !== divisionRevision) return;
+  busy = false;
+  renderFreshness();
+  if (manual && reportResult.count) {
+    refreshStatus.textContent += ` Report verificati: ${reportResult.count - reportResult.failed}/${reportResult.count}.${reportResult.failed ? " Alcuni report non sono disponibili: consulta il dettaglio della partita." : ""}`;
+  }
   if (restoreRefreshFocus && document.activeElement === document.body)
     document.querySelector("#refresh").focus({ preventScroll: true });
 }
@@ -608,7 +774,10 @@ window.history.replaceState(null, "", initialUrl);
 function onNavigation() {
   const requested = initialDivision(window.location.search);
   if (requested !== division) changeDivision(requested, { fromNavigation: true });
-  else render({ navigation: true });
+  else {
+    render({ navigation: true });
+    refreshReports();
+  }
 }
 window.addEventListener("hashchange", onNavigation);
 window.addEventListener("popstate", onNavigation);
@@ -618,13 +787,13 @@ document.querySelector(".skip-link").addEventListener("click", (event) => {
   content.scrollIntoView({ block: "start" });
 });
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden) refresh();
+  if (!document.hidden) { updateReportDisplay(); refresh(); }
 });
 setInterval(() => {
   if (!document.hidden) refresh();
 }, 90000);
 setInterval(() => {
-  if (!document.hidden) renderFreshness();
-}, 60000);
+  if (!document.hidden) { renderFreshness(); updateReportDisplay(); }
+}, REPORT_INTERVAL);
 if (data) render();
 refresh();

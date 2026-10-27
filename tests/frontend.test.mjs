@@ -10,10 +10,12 @@ import {
   publicationIsStale,
   requestData,
   romeNow,
+  sortPlayersByTotal,
   validateData,
 } from "../src/data.js";
 import { PREFERENCES_KEY, normalizePreferences, readPreferences, savePreferences, selectTeam, shortcutTeamIds, toggleTeam } from "../src/preferences.js";
 import { DIVISIONS, DIVISION_KEY, cacheKey, initialDivision } from "../src/divisions.js";
+import { parseCsv, parseReport, reportView, requestReport, shouldCheckReport, inReportWindow, REPORT_INTERVAL } from "../src/reports.js";
 
 const published = JSON.parse(readFileSync("public/data.json", "utf8"));
 const publishedB = JSON.parse(readFileSync("public/data-mixed-b.json", "utf8"));
@@ -39,10 +41,173 @@ const first = {
 };
 const clone = () => structuredClone(data);
 
+// SYNTHETIC score reports only; no real player data and no writes to public/.
+const reportMatch = { ...first, a: { teamId: "a" }, b: { teamId: "b" },
+  reportUrl: "https://docs.google.com/spreadsheets/d/SYNTHETIC/edit?gid=999#gid=999" };
+const reportTeams = [{ id: "a", name: "Team A" }, { id: "b", name: "Team B" }];
+const csv = (rows) => rows.map((row) => row.map((cell) => `"${cell.replaceAll('"', '""')}"`).join(",")).join("\r\n");
+const reportMetadata = csv([["FOGLIO DI GARA"], ["CAMPIONATI ITALIANI ULTIMATE MIXED"], ["Team A vs. Team B"], ["25 ottobre 2026"]]);
+function reportScores(end = "", final = "2 - 1") {
+  return csv([["assist", "meta", "parziale"], ["", "", "1 - 0"], ["", "", "1 - 1"], ["", "", "2 - 1"],
+    ["orario inizio:     09 : 03", "punteggio half-time:", ""],
+    [`orario fine:     ${end || " : "}`, "risultato finale:", final]]);
+}
+const liveTime = new Date("2026-10-25T08:10:00Z");
+const liveEntry = () => ({ report: parseReport(reportMetadata, reportScores(), reportMatch, reportTeams),
+  checkedAt: +liveTime, attemptedAt: +liveTime, error: null, url: reportMatch.reportUrl });
+
+test("SYNTHETIC report distinguishes live, ended, stale and authoritative final results", () => {
+  const entry = liveEntry();
+  assert.deepEqual(reportView(reportMatch, entry, liveTime), { score: { a: 2, b: 1 }, state: "live" });
+  assert.equal(reportView(reportMatch, entry, new Date(+liveTime + 126000)).state, "report-stale");
+  assert.equal(reportView(reportMatch, entry, new Date("2026-10-26T08:00:00Z")).state, "report-stale");
+  assert.equal(reportView(reportMatch, { ...entry, error: "offline" }, liveTime).state, "report-stale");
+  entry.report.end = "10:15";
+  assert.equal(reportView(reportMatch, entry, new Date(+liveTime + 600000)).state, "provisional");
+  const final = { ...reportMatch, score: { a: 0, b: 15 }, resultState: "complete" };
+  assert.deepEqual(reportView(final, entry, liveTime), { score: final.score, state: "complete" });
+  assert.equal(reportMatch.resultState, "none");
+});
+
+test("SYNTHETIC report validates date, exact identity, reversed sides and score progression", () => {
+  const reversed = reportMetadata.replace("Team A vs. Team B", "Team B vs. Team A");
+  assert.deepEqual(parseReport(reversed, reportScores("10 : 15"), reportMatch, reportTeams).score, { a: 1, b: 2 });
+  for (const metadata of [reportMetadata.replace("25 ottobre", "26 ottobre"),
+    reportMetadata.replace("Team A vs.", "Different vs."), reportMetadata.replace("ottobre", "unknown"),
+    reportMetadata.replace("25 ottobre", "32 ottobre")]) {
+    assert.throws(() => parseReport(metadata, reportScores(), reportMatch, reportTeams));
+  }
+  for (const body of [reportScores().replace('"1 - 1"', '"0 - 1"'), reportScores("", "3 - 1"),
+    reportScores().replace("09 : 03", " : "), reportScores().replace("09 : 03", "29 : 03"),
+    reportScores().replace("parziale", "changed")]) {
+    assert.throws(() => parseReport(reportMetadata, body, reportMatch, reportTeams));
+  }
+});
+
+test("SYNTHETIC reports keep explicit zero scores and do not invent a score for blank reports", () => {
+  const body = (value) => csv([["assist", "meta", "parziale"],
+    ["orario inizio: 09 : 03", "punteggio half-time:", ""], ["orario fine: :", "risultato finale:", value]]);
+  assert.deepEqual(parseReport(reportMetadata, body("0 - 0"), reportMatch, reportTeams).score, { a: 0, b: 0 });
+  assert.equal(parseReport(reportMetadata, body(""), reportMatch, reportTeams).score, null);
+  const upcoming = body("").replace("09 : 03", "").replace("orario fine: :", "orario fine:");
+  assert.deepEqual(parseReport(reportMetadata, upcoming, reportMatch, reportTeams),
+    { score: null, start: null, end: null, date: reportMatch.date });
+});
+
+test("CSV parsing handles escaped quotes/newlines and rejects malformed or oversized responses", () => {
+  assert.deepEqual(parseCsv(csv([['a, b', 'a"b', 'a\nb']])), [['a, b', 'a"b', 'a\nb']]);
+  for (const body of ['"unfinished', '"x"extra', '<html>login</html>', 'x'.repeat(131073)]) {
+    if (body.startsWith("<")) assert.throws(() => parseReport(body, reportScores(), reportMatch, reportTeams));
+    else assert.throws(() => parseCsv(body));
+  }
+});
+
+test("report polling uses 60 seconds only within ±2 hours, with an explicit manual exception", () => {
+  const entry = liveEntry();
+  assert.equal(REPORT_INTERVAL, 60000);
+  assert.equal(shouldCheckReport(reportMatch, null, liveTime), true);
+  assert.equal(shouldCheckReport(reportMatch, entry, new Date(+liveTime + 59999)), false);
+  assert.equal(shouldCheckReport(reportMatch, entry, new Date(+liveTime + 60000)), true);
+  assert.equal(shouldCheckReport(reportMatch, entry, liveTime, true), true);
+  assert.equal(shouldCheckReport({ ...reportMatch, start: "16:00" }, null, liveTime), false);
+  assert.equal(shouldCheckReport(reportMatch, null, new Date("2026-10-26T08:00:00Z")), false);
+  assert.equal(shouldCheckReport(reportMatch, null, new Date("2026-10-26T08:00:00Z"), true), true);
+  assert.equal(shouldCheckReport({ ...reportMatch, resultState: "complete" }, entry, new Date(+liveTime + 60000)), false);
+  assert.equal(shouldCheckReport(reportMatch, { ...entry, report: { ...entry.report, end: "10:20" } },
+    new Date(+liveTime + 60000)), false);
+});
+
+test("±2-hour window respects exact boundaries, Rome midnight and winter/summer time", () => {
+  for (const [date, instant] of [["2026-10-25", "2026-10-25T08:00:00Z"],
+    ["2026-10-24", "2026-10-24T07:00:00Z"]]) {
+    const match = { ...reportMatch, date, start: "09:00" };
+    const middle = Date.parse(instant);
+    for (const delta of [-120, -60, 0, 60, 120])
+      assert.equal(inReportWindow(match, new Date(middle + delta * 60000)), true);
+    for (const delta of [-120 * 60000 - 1, 120 * 60000 + 1])
+      assert.equal(inReportWindow(match, new Date(middle + delta)), false);
+  }
+  assert.equal(inReportWindow({ ...reportMatch, date: "2026-10-27", start: "00:30" },
+    new Date("2026-10-26T22:00:00Z")), true);
+  assert.equal(inReportWindow({ ...reportMatch, start: null }, liveTime), false);
+  const outside = new Date("2026-10-25T12:00:00Z");
+  assert.equal(shouldCheckReport(reportMatch, { ...liveEntry(), error: "offline" }, outside), false);
+  assert.equal(reportView(reportMatch, { ...liveEntry(), checkedAt: +outside }, outside).state, "report-stale");
+  const midnight = new Date("2026-10-26T23:10:00Z");
+  const nightMatch = { ...reportMatch, date: "2026-10-26", start: "23:30" };
+  const nightReport = { ...liveEntry(), checkedAt: +midnight,
+    report: { ...liveEntry().report, date: "2026-10-26", start: "23:35" } };
+  assert.equal(reportView(nightMatch, nightReport, midnight).state, "live");
+});
+
+test("report download requests LIVE by name without credentials and preserves data on failure", async () => {
+  let calls = 0;
+  const fetcher = async (url, options) => {
+    const params = new URL(url).searchParams;
+    assert.equal(params.get("sheet"), "Foglio di gara (LIVE)");
+    assert.equal(params.get("gid"), null);
+    assert.equal(options.credentials, "omit");
+    assert.equal(options.cache, "no-store");
+    calls++;
+    return new Response(params.get("range") === "C4:C7" ? reportMetadata : reportScores(),
+      { headers: { "content-type": "text/csv" } });
+  };
+  const times = [+liveTime, +liveTime + 1000];
+  const loaded = await requestReport(reportMatch, reportTeams, null, { fetcher, clock: () => times.shift() });
+  assert.equal(calls, 2);
+  assert.equal(loaded.error, null);
+  assert.equal(loaded.attemptedAt, +liveTime);
+  assert.equal(loaded.checkedAt, +liveTime + 1000);
+  const failed = await requestReport(reportMatch, reportTeams, loaded,
+    { fetcher: async () => { throw new Error("offline"); }, clock: () => +liveTime + 60000 });
+  assert.equal(failed.report, loaded.report);
+  assert.equal(failed.checkedAt, loaded.checkedAt);
+  assert.equal(failed.error, "offline");
+  const postponed = await requestReport({ ...reportMatch, date: "2026-11-07" }, reportTeams, loaded,
+    { fetcher: async () => { throw new Error("offline"); } });
+  assert.equal(postponed.report, null);
+  for (const response of [new Response("denied", { status: 403 }),
+    new Response("<html>login</html>", { headers: { "content-type": "text/html" } })]) {
+    assert.ok((await requestReport(reportMatch, reportTeams, null, { fetcher: async () => response })).error);
+  }
+  let contacted = false;
+  assert.ok((await requestReport({ ...reportMatch, reportUrl: "https://evil.test/report" }, reportTeams,
+    null, { fetcher: async () => { contacted = true; } })).error);
+  assert.equal(contacted, false);
+});
+
+test("only explicitly approved division aliases reconcile report spellings", () => {
+  const metadata = reportMetadata.replace("Team B", "360 Mlano");
+  const teams = [reportTeams[0], { id: "b", name: "360 Milano" }];
+  assert.throws(() => parseReport(metadata, reportScores(), reportMatch, teams));
+  assert.deepEqual(parseReport(metadata, reportScores(), reportMatch, teams,
+    DIVISIONS["mixed-a"].reportTeamAliases).score, { a: 2, b: 1 });
+  assert.throws(() => parseReport(metadata.replace("360 Mlano", "360 Milno"), reportScores(), reportMatch, teams,
+    DIVISIONS["mixed-a"].reportTeamAliases));
+});
+
+test("SYNTHETIC live status filtering uses the overlay without changing the main dataset", () => {
+  const entry = liveEntry();
+  const sample = { ...data, teams: reportTeams, matches: [reportMatch] };
+  const stateFor = (match, date) => reportView(match, entry, date).state;
+  assert.deepEqual(filterMatches(sample, { status: "live" }, liveTime, stateFor), [reportMatch]);
+  assert.deepEqual(filterMatches(sample, { status: "complete" }, liveTime, stateFor), []);
+  assert.equal(sample.matches[0].resultState, "none");
+  assert.deepEqual(sample.matches[0].score, { a: null, b: null });
+});
+
 test("published dataset validates without imposing frozen row counts", () => {
   assert.equal(validateData(published), published);
   assert.ok(published.teams.length > 0);
   assert.ok(published.matches.length > 0);
+});
+
+test("player totals sort descending without mutation, retaining source order at ties and missing last", () => {
+  const players = [{ id: "missing", total: null }, { id: "zero", total: 0 },
+    { id: "high", total: 8 }, { id: "tie-a", total: 3 }, { id: "tie-b", total: 3 }];
+  const sorted = sortPlayersByTotal(players);
+  assert.deepEqual(sorted.map((player) => player.id), ["high", "tie-a", "tie-b", "zero", "missing"]);
+  assert.equal(players[0].id, "missing");
 });
 
 test("case and accent-insensitive search preserves canonical spelling", () => {

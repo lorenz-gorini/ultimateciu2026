@@ -10,10 +10,13 @@ export const PHASES = {
 };
 export const STATES = {
   scheduled: "In programma",
-  complete: "Risultato registrato",
+  complete: "Risultato finale",
   partial: "Risultato incompleto",
   unreported: "Risultato non disponibile",
   unresolved: "Programmazione da definire",
+  live: "LIVE · parziale dal report",
+  provisional: "Report terminato · da confermare",
+  "report-stale": "Ultimo parziale · non live",
 };
 
 function invariant(condition, message) {
@@ -170,6 +173,11 @@ export function normalizeSearch(value) {
     .toLocaleLowerCase("it");
 }
 
+/** Descending player totals; explicit zeros precede missing values and ties keep source order. */
+export function sortPlayersByTotal(players) {
+  return [...players].sort((a, b) => (b.total ?? -1) - (a.total ?? -1));
+}
+
 /** Compare local calendar/time strings in Rome, independent of browser timezone. */
 export function romeNow(now = new Date()) {
   const parts = Object.fromEntries(
@@ -212,7 +220,7 @@ export function formatDate(iso, short = false) {
   }).format(new Date(`${iso}T12:00:00Z`));
 }
 
-export function filterMatches(data, filters, now = new Date()) {
+export function filterMatches(data, filters, now = new Date(), stateFor = matchState) {
   const names = new Map(data.teams.map((team) => [team.id, team.name]));
   const selected = new Set(filters.teamIds || []);
   const query = normalizeSearch(filters.search || "");
@@ -221,7 +229,7 @@ export function filterMatches(data, filters, now = new Date()) {
       (match) =>
         (!filters.date || match.date === filters.date) &&
         (!filters.phase || match.phase === filters.phase) &&
-        (!filters.status || matchState(match, now) === filters.status) &&
+        (!filters.status || stateFor(match, now) === filters.status) &&
         [match.a, match.b].some((side) =>
           selected.size
             ? selected.has(side.teamId)

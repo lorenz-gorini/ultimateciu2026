@@ -7,7 +7,7 @@
     "dev": "vite --host 127.0.0.1",
     "build": "node scripts/check-data.mjs && vite build",
     "preview": "vite preview --host 127.0.0.1 --port 4173 --strictPort",
-    "test": "node --test tests/frontend.test.mjs"
+    "test": "node --test tests/*.test.mjs"
   },
   "dependencies": {
     "ajv": "8.20.0"
