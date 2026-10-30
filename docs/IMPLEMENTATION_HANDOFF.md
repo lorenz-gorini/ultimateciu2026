@@ -2,7 +2,9 @@
 
 ## Current state and next action
 
-**27 October 2026: published and verified.** Runtime release `6bfc2928765646efd03d2a4d66ac2123c65b6665` is live at [CIU Mixed 2026](https://lorenz-gorini.github.io/ultimateciu2026/). The importer repair is the preceding scoped commit `37c1b39`. [Pages run 40496910948](https://github.com/lorenz-gorini/ultimateciu2026/actions/runs/40496910948) passed all validation and deployed at **12:34:25 Europe/Rome** (`11:34:25 UTC`). Independent public JSON and browser reads confirm the new finals, match rosters/statistics, total sorting and elected MVPs. Work started from `main` / `d4a6fc1`; the previously pending refinements are now committed and pushed.
+**30 October 2026: scheduled refresh and public data verified healthy.** The reported `Initial pool row 26: invalid slot` error belongs to historical 21–22 October UTC runs. The current sources import successfully, and [scheduled run 41009479581](https://github.com/lorenz-gorini/ultimateciu2026/actions/runs/41009479581) completed import, tests and deployment at **07:39:47 Europe/Rome** on 30 October. No runtime change, rerun or new publication is needed; the diagnostic evidence and its limits are recorded below.
+
+Runtime release `6bfc2928765646efd03d2a4d66ac2123c65b6665` remains live at [CIU Mixed 2026](https://lorenz-gorini.github.io/ultimateciu2026/). The importer repair is the preceding scoped commit `37c1b39`. Its initial [Pages run 40496910948](https://github.com/lorenz-gorini/ultimateciu2026/actions/runs/40496910948) passed all validation and deployed on **27 October at 12:34:25 Europe/Rome** (`11:34:25 UTC`). Independent public JSON and browser reads confirmed the new finals, match rosters/statistics, total sorting and elected MVPs. That implementation started from `main` / `d4a6fc1`; the refinements are committed and pushed.
 
 Lorenzo reviewed the local refinements and explicitly authorized splitting the changes into commits and publishing on 27 October. He also authorized future project-local checkpoint commits after each completed verified request/feature; pushes and publication remain explicitly requested actions. This standing local-commit policy is recorded in AGENTS.md. The previous executable briefs are superseded by this coherent current record; their full historical evidence remains in Git at `d4a6fc1`. Use README for the single setup/import/test/build/preview procedure.
 
@@ -102,6 +104,20 @@ Follow README's local setup/import/test/build/preview commands. Do not introduce
 - `PAGES_ENABLED=true` gates deployment. Pages uses HTTPS, project subpath and the github-pages environment restricted to main. No generated JSON commits. Failed imports/tests leave the last successful public deployment intact. Main-sheet match-day downloads older than one hour show a stale-copy warning.
 - After an authorized release, a maintainer can refresh in GitHub: Actions → Refresh data and deploy Pages → Run workflow on main; wait for success, then Aggiorna. For failures, inspect the job error, repair the adapter against actual source evidence, rerun its regressions and publish a reviewed fix. Never bypass validation to force deployment.
 
+## Refresh failure audit — 30 October 2026
+
+Starting checkpoint: `main` / `887a8c5`, clean tracked worktree. Lorenzo reported `IMPORT FAILED — previous output preserved: Initial pool row 26: invalid slot`. Read-only GitHub inspection located that exact message in [run 39685384920](https://github.com/lorenz-gorini/ultimateciu2026/actions/runs/39685384920) at 21 October 22:18:24 UTC and [run 39705764386](https://github.com/lorenz-gorini/ultimateciu2026/actions/runs/39705764386) at 22 October 01:28:45 UTC. This is a source-data validation failure, not evidence of a Python installation problem: the initial Serie A pool requires `Classifiche e format!B26` to contain one of the literal slots X1–X6. The failed runs do not retain the downloaded workbook or offending value, so its historical cause (blank, wrong type or unexpected text) cannot be established. Do not guess a replacement or disable the validation.
+
+Fresh anonymous downloads at 08:54:47 / 08:54:49 UTC on 30 October validate with the unchanged current parser. Serie A B26 contains `X6`, paired with `360 Milano`. All initial pool slots, both complete workbooks and shared JSON invariants pass. The latest eight scheduled runs inspected (28–30 October) succeeded. The most recent run, 41009479581 on `887a8c5`, actually imported both sources, passed **29 Python tests and 40 frontend tests**, built and deployed; it did not merely skip the work.
+
+| Independently validated public JSON, 30 October | Serie A | Serie B |
+| --- | ---: | ---: |
+| Teams / fixtures | 12 / 56 | 18 / 63 |
+| Finished main-sheet results | 12 | 18 |
+| Download UTC | 05:39:24.242996 | 05:39:26.421483 |
+
+**Decision and next action:** the reported error is historical and does not currently block updates. No runtime fix, source edit, workflow change, dispatch or push/publication was performed for this audit. Only this handoff is updated in a scoped local documentation checkpoint. Lorenzo needs no rerun; if a new failure occurs, provide its run URL so diagnosis uses that execution's actual error. The existing README maintainer-refresh procedure remains authoritative when an immediate refresh is wanted. Source inspection, public JSON and selected workflow logs are ignored local evidence under `work/verification/2026-10-30/`; the frozen fixtures and generated production inputs are unchanged.
+
 ## Verification evidence — 26–27 October 2026
 
 **Cause confirmed:** [scheduled run 40367355501](https://github.com/lorenz-gorini/ultimateciu2026/actions/runs/40367355501) failed with `IMPORT FAILED — previous output preserved: Partite!Q5: unknown carry-over/status marker`. The source now uses Q for report links. The old parser treated every nonempty Q as an inherited marker, stopping new finals from reaching Pages. After accepting the inspected report marker/link contract, Serie B exposed one statistic row with both names missing (`Statistiche!B123:C123`), which also needed nullable-name handling.
@@ -137,7 +153,7 @@ Raw verification downloads, logs, report checks, screenshots and generated build
 ### Remaining limitations
 
 1. No real ongoing match was observed on 26–27 October. Synthetic reports and controlled clocks verify live transitions and final precedence; actual event-day update latency remains unobserved. Browser timers pause in hidden tabs and resume on visibility. Google CSV/CORS, schema and its own LIVE-sheet propagation can change or fail; the fallback is an explicit unavailable/stale state and the original report link.
-2. Finished results follow the main-sheet import/deployment cadence. The repaired push-triggered import and deployment have succeeded. No post-release scheduled event has yet been observed; the unchanged best-effort schedule and season cutoff still apply. No action is required for the published release.
+2. Finished results follow the main-sheet import/deployment cadence. The repaired push-triggered import/deployment and subsequent scheduled runs have succeeded, including the full 30 October execution documented above. The unchanged best-effort schedule and season cutoff still apply. No action is required for the published release.
 3. Only the confirmed 360 Mlano alias is allowed. Any further name/layout discrepancy is flagged rather than guessed. The five existing A form-prefill issues remain source warnings; users should check fields in Google Forms. No form submission or authenticated form completion was tested.
 4. Report rosters and individual match statistics are now supported; seasonal numbered player-slot mapping remains unestablished and unused. Four completed B reports have an unnamed roster entry; retain the known jersey, presence and statistics with an explicit missing-name label. MVP is not indicated for 19 of 60 inspected team-match observations; never infer a winner. Last-successful check times do not prove organizer edit times.
 
