@@ -127,6 +127,7 @@ const participant = (side) =>
   side.teamId
     ? teamLink(side.teamId)
     : `<span class="slot" title="Qualificazione non ancora risolta">${escape(side.slot)}</span>`;
+const matchLabel = (match) => [match.a, match.b].map((side) => team(side.teamId)?.name || side.slot).join(" – ");
 const shown = (value) => (value === null ? "—" : escape(value));
 const playerName = (player) => [player.givenName, player.surname].filter(Boolean).join(" ") || "Nome non indicato nella fonte";
 const reportKey = (match) => `${division}:${match.id}`;
@@ -197,7 +198,7 @@ function fixture(match) {
       <div class="fixture-result" data-result="${escape(match.id)}">${resultMarkup(match)}</div>
       <div class="fixture-side fixture-side-b">${participant(match.b)}</div></div>
     <div class="fixture-place"><span>${location(match)}</span><span>${PHASES[match.phase]}${match.pool ? ` · ${escape(data.pools.find((pool) => pool.id === match.pool)?.name || match.pool)}` : ""}</span></div>
-    <a class="detail-link" href="#/match/${encodeURIComponent(match.id)}" aria-label="Dettagli ${escape(match.id)}">${escape(match.id)} <span aria-hidden="true">↗</span></a>
+    <a class="detail-link" href="#/match/${encodeURIComponent(match.id)}" aria-label="Dettagli ${escape(matchLabel(match))}">Dettagli</a>
   </article>`;
 }
 
@@ -206,7 +207,9 @@ function resultMarkup(match, detail = false) {
   const entry = currentReport(match);
   const checked = ["live", "provisional", "report-stale"].includes(state) && entry?.checkedAt
     ? `<small class="report-checked">Report: ${escape(timestamp(entry.checkedAt))}</small>` : "";
-  return `<strong class="${detail ? "big-score" : "score"}">${score(match)}</strong><span class="status ${state}">${STATES[state]}</span>${checked}`;
+  const value = `<strong class="${detail ? "big-score" : "score"}">${score(match)}</strong>`;
+  const result = detail ? value : `<a class="score-link" href="#/match/${encodeURIComponent(match.id)}">${value}<span class="visually-hidden"> · Apri i dettagli di ${escape(matchLabel(match))}</span></a>`;
+  return `${result}<span class="status ${state}">${STATES[state]}</span>${checked}`;
 }
 
 function reportMarkup(match) {
