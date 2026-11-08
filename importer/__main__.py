@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import io
 import json
+import logging
 import os
 import tempfile
 import time
@@ -94,4 +95,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s — %(message)s")
     main()

@@ -159,6 +159,34 @@ class ImporterTests(unittest.TestCase):
         self.assertEqual(evaluations[0]["categories"], [0] * 5)
         self.assertTrue(data["availability"]["sotg"])
 
+    def test_synthetic_name_only_unlinked_sotg_rows_are_ignored(self) -> None:
+        payload = synthetic_workbook({"Valutazioni SOTG": {"C114": "BFD Redshot", "D114": "VOLADORA"}})
+        with self.assertLogs("importer.workbook", level="INFO") as messages:
+            data = parse_workbook(payload, TEST_TIME)
+        self.assertEqual(data["sotg"], self.data["sotg"])
+        self.assertFalse(data["availability"]["sotg"])
+        self.assertIn("ignored 1 name-only SOTG service rows", messages.output[0])
+
+    def test_synthetic_unlinked_sotg_values_and_unknown_names_still_fail(self) -> None:
+        for cell, value in (("B114", "2026-10-25"), ("E114", "valuta"), ("F114", "✔"),
+                            ("G114", 0), ("L114", 0), ("M114", "SYNTHETIC comment"),
+                            ("C114", "Unknown synthetic team")):
+            cells = {"C114": "BFD Redshot", "D114": "VOLADORA", cell: value}
+            with self.subTest(cell=cell), self.assertRaises(ImportFailure):
+                parse_workbook(synthetic_workbook({"Valutazioni SOTG": cells}), TEST_TIME)
+
+    def test_synthetic_unlabelled_sotg_link_without_match_id_still_fails(self) -> None:
+        book = openpyxl.load_workbook(io.BytesIO(self.payload))
+        sheet = book["Valutazioni SOTG"]
+        sheet["C114"], sheet["D114"] = "BFD Redshot", "VOLADORA"
+        sheet["E114"].hyperlink = self.data["sotg"][0]["formUrl"]
+        sheet["E114"].value = None
+        buffer = io.BytesIO()
+        book.save(buffer)
+        book.close()
+        with self.assertRaisesRegex(ImportFailure, "without match ID"):
+            parse_workbook(buffer.getvalue(), TEST_TIME)
+
     def test_synthetic_carryover_not_new_match(self) -> None:
         data = parse_workbook(synthetic_workbook({"Partite": {"L41": 0, "N41": 15}}), TEST_TIME)
         self.assertEqual(len(data["matches"]), 56)

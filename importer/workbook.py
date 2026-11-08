@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import logging
 import math
 import re
 from datetime import date, datetime, time
@@ -323,15 +324,20 @@ def parse_workbook(payload: bytes, fetched_at: str, source_mode: str = "live", *
             require(name in by_name, f"O{row}: unknown final team")
             final_classification.append({"position": position, "teamId": by_name[name], "provenance": provenance(names[0], f"N{row}:O{row}")})
 
-    sotg = []
+    sotg, ignored_sotg_rows = [], 0
     for row in range(2, cached[names[2]].max_row + 1):
         match_id = spirit.get(row, 1)
-        if match_id is None:
-            require(all(spirit.get(row, col) is None for col in (3, 4, 5, 7, 8, 9, 10, 11, 12, 13)), f"SOTG row {row}: evaluation without match ID")
-            continue
         evaluating, evaluated = spirit.get(row, 3), spirit.get(row, 4)
         require(evaluating is None or evaluating in by_name, f"SOTG row {row}: unknown evaluating team")
         require(evaluated is None or evaluated in by_name, f"SOTG row {row}: unknown evaluated team")
+        if match_id is None:
+            # User-approved service rows can contain known names only. Explicit zero
+            # votes, dates, submission marks and even unlabelled links must still fail.
+            require(all(spirit.get(row, col) is None for col in (2, *range(5, 14)))
+                    and spirit.hyperlink(row, 5) is None,
+                    f"SOTG row {row}: evaluation or link without match ID")
+            ignored_sotg_rows += int(evaluating is not None or evaluated is not None)
+            continue
         categories = [numeric(spirit.get(row, col), f"SOTG row {row} category", integer=True) for col in range(7, 12)]
         total = numeric(spirit.get(row, 12), f"SOTG row {row} total")
         comment = string(spirit.get(row, 13), f"SOTG row {row} comment", optional=True)
@@ -346,6 +352,9 @@ def parse_workbook(payload: bytes, fetched_at: str, source_mode: str = "live", *
                      "formUrl": form_url,
                      "formTeamsMatch": form_team_match(form_url, match_id, evaluating, evaluated),
                      "provenance": provenance(names[2], f"A{row}:M{row}")})
+    if ignored_sotg_rows:
+        logging.getLogger(__name__).info("%s: ignored %d name-only SOTG service rows without match ID, link or evaluation",
+                                        division["label"], ignored_sotg_rows)
     players = []
     for row in range(3, cached[names[3]].max_row + 1):
         values = [stats.get(row, col) for col in range(1, 17)]

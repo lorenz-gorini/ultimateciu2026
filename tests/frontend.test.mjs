@@ -409,7 +409,8 @@ test("multi-team selection uses OR without duplicates and secondary filters use 
   assert.deepEqual(filterMatches(data, { teamIds: ["x1"], search: "does not match" }, now), filterMatches(data, { teamIds: ["x1"] }, now));
   const accented = clone();
   accented.teams.find((team) => team.id === "x1").name = "BFD Rédshot";
-  assert.equal(filterMatches(accented, { search: "bfd REDSHOT" }, now).length, 5);
+  assert.deepEqual(filterMatches(accented, { search: "bfd REDSHOT" }, now),
+    filterMatches(accented, { teamIds: ["x1"] }, now));
 });
 
 test("SYNTHETIC preferences reconcile IDs, version, duplicates, removals and renamed teams", () => {
