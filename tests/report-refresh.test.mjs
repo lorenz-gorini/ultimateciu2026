@@ -90,7 +90,7 @@ test("homepage batch reads real adapter ranges and updates every result independ
     const ended = query.pathname.includes("finished");
     const body = csv([["assist", "meta", "parziale"], ["", "", "1 - 0"],
       ["orario inizio: 09 : 03", "punteggio half-time:", ""],
-      [`orario fine: ${ended ? "10 : 15" : " : "}`, "risultato finale:", "1 - 0"]]);
+      [`orario fine: ${ended ? "10 : 15" : " : "}`, "risultato finale:", "1 - 0"]].map((row, index) => ["", index === 0 ? "squadra" : "", ...row, ""]));
     return new Response(query.searchParams.get("range") === "C4:C7" ? metadata : body,
       { headers: { "Content-Type": "text/csv" } });
   };

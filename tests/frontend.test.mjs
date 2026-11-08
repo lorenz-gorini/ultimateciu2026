@@ -47,8 +47,9 @@ const reportMatch = { ...first, a: { teamId: "a" }, b: { teamId: "b" },
 const reportTeams = [{ id: "a", name: "Team A" }, { id: "b", name: "Team B" }];
 const csv = (rows) => rows.map((row) => row.map((cell) => `"${cell.replaceAll('"', '""')}"`).join(",")).join("\r\n");
 const reportMetadata = csv([["FOGLIO DI GARA"], ["CAMPIONATI ITALIANI ULTIMATE MIXED"], ["Team A vs. Team B"], ["25 ottobre 2026"]]);
+const reportCsv = (rows) => csv(rows.map((row, index) => ["", index === 0 ? "squadra" : "", ...row, ""]));
 function reportScores(end = "", final = "2 - 1") {
-  return csv([["assist", "meta", "parziale"], ["", "", "1 - 0"], ["", "", "1 - 1"], ["", "", "2 - 1"],
+  return reportCsv([["assist", "meta", "parziale"], ["", "", "1 - 0"], ["", "", "1 - 1"], ["", "", "2 - 1"],
     ["orario inizio:     09 : 03", "punteggio half-time:", ""],
     [`orario fine:     ${end || " : "}`, "risultato finale:", final]]);
 }
@@ -85,13 +86,13 @@ test("SYNTHETIC report validates date, exact identity, reversed sides and score 
 });
 
 test("SYNTHETIC reports keep explicit zero scores and do not invent a score for blank reports", () => {
-  const body = (value) => csv([["assist", "meta", "parziale"],
+  const body = (value) => reportCsv([["assist", "meta", "parziale"],
     ["orario inizio: 09 : 03", "punteggio half-time:", ""], ["orario fine: :", "risultato finale:", value]]);
   assert.deepEqual(parseReport(reportMetadata, body("0 - 0"), reportMatch, reportTeams).score, { a: 0, b: 0 });
   assert.equal(parseReport(reportMetadata, body(""), reportMatch, reportTeams).score, null);
   const upcoming = body("").replace("09 : 03", "").replace("orario fine: :", "orario fine:");
   assert.deepEqual(parseReport(reportMetadata, upcoming, reportMatch, reportTeams),
-    { score: null, start: null, end: null, date: reportMatch.date });
+    { score: null, start: null, end: null, date: reportMatch.date, goals: [], halftime: null, timeOrdered: true });
 });
 
 test("CSV parsing handles escaped quotes/newlines and rejects malformed or oversized responses", () => {
@@ -109,8 +110,8 @@ test("detail polling uses 60 seconds during the recovery window, with an explici
   assert.equal(shouldCheckReport(reportMatch, entry, new Date(+liveTime + 59999)), false);
   assert.equal(shouldCheckReport(reportMatch, entry, new Date(+liveTime + 60000)), true);
   assert.equal(shouldCheckReport(reportMatch, entry, liveTime, { force: true }), true);
-  assert.equal(shouldCheckReport({ ...reportMatch, start: "16:00" }, null, liveTime), false);
-  assert.equal(shouldCheckReport(reportMatch, null, new Date("2026-10-26T08:00:00Z")), false);
+  assert.equal(shouldCheckReport({ ...reportMatch, start: "16:00" }, null, liveTime, { detail: false }), false);
+  assert.equal(shouldCheckReport(reportMatch, null, new Date("2026-10-26T08:00:00Z"), { detail: false }), false);
   assert.equal(shouldCheckReport(reportMatch, null, new Date("2026-10-26T08:00:00Z"), { force: true }), true);
   assert.equal(shouldCheckReport({ ...reportMatch, resultState: "complete" }, entry, new Date(+liveTime + 60000)), false);
   assert.equal(shouldCheckReport(reportMatch, { ...entry, report: { ...entry.report, end: "10:20" } },

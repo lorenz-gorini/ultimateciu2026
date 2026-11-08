@@ -90,30 +90,49 @@ export function parseReport(metadataCsv, scoresCsv, match, teams, aliases = {}) 
   const identity = parseReportIdentity(metadataCsv, match, teams, aliases);
   const reversed = identity.teamIds[0] === match.b.teamId;
   const rows = parseCsv(scoresCsv);
-  require(rows.every((row) => row.length === 3)
-    && rows[0].join("|") === "assist|meta|parziale", "Colonne delle mete cambiate");
-  const starts = rows.filter((row) => /^orario inizio:/i.test(row[0]));
-  const ends = rows.filter((row) => /^orario fine:/i.test(row[0]));
-  require(starts.length === 1 && ends.length === 1 && ends[0][1] === "risultato finale:"
-    && starts[0][1] === "punteggio half-time:", "Riepilogo del report cambiato");
-  const start = reportTime(starts[0][0], "inizio");
-  const end = reportTime(ends[0][0], "fine");
+  require(rows.every((row) => row.length === 6)
+    && rows[0].join("|") === "|squadra|assist|meta|parziale|", "Colonne delle mete cambiate");
+  const starts = rows.filter((row) => /^orario inizio:/i.test(row[2]));
+  const ends = rows.filter((row) => /^orario fine:/i.test(row[2]));
+  require(starts.length === 1 && ends.length === 1 && ends[0][3] === "risultato finale:"
+    && starts[0][3] === "punteggio half-time:", "Riepilogo del report cambiato");
+  const start = reportTime(starts[0][2], "inizio");
+  const end = reportTime(ends[0][2], "fine");
   require(!end || start, "Report con fine partita senza inizio");
   let previous = { a: 0, b: 0 }, hasGoals = false;
+  const goals = [];
+  const orient = (score) => score && (reversed ? { a: score.b, b: score.a } : { ...score });
   const footer = rows.indexOf(starts[0]);
   require(rows.indexOf(ends[0]) > footer, "Ordine del riepilogo cambiato");
   for (const row of rows.slice(1, footer)) {
-    const current = reportScore(row[2]);
+    const current = reportScore(row[4]);
     if (!current) continue;
     require((current.a === previous.a + 1 && current.b === previous.b)
       || (current.b === previous.b + 1 && current.a === previous.a), "Progressione delle mete incoerente");
+    const sourceSide = current.a > previous.a ? 0 : 1;
+    // The validated cumulative score identifies the scoring team, even if its dropdown is blank.
+    const side = identity.teamIds[sourceSide] === match.a.teamId ? "a" : "b";
+    const minute = row[0].trim().match(/^(\d{1,3})\s*['’′]?$/);
+    const expectedName = teams.find((team) => team.id === match[side].teamId)?.name;
+    goals.push({ number: goals.length + 1, side, score: orient(current),
+      assist: row[2].trim() || null, scorer: row[3].trim() || null,
+      minute: minute ? +minute[1] : null,
+      isBreak: row[5].trim().toLowerCase() === "break",
+      breakUnrecognized: Boolean(row[5].trim()) && row[5].trim().toLowerCase() !== "break",
+      timeUnrecognized: Boolean(row[0].trim()) && !minute,
+      teamMismatch: Boolean(row[1].trim()) && canonicalReportTeam(row[1].trim(), aliases) !== expectedName });
     previous = current; hasGoals = true;
   }
-  const final = reportScore(ends[0][2]);
+  const final = reportScore(ends[0][4]);
   require(!final || (final.a === previous.a && final.b === previous.b), "Riepilogo e mete del report non coincidono");
   const score = hasGoals ? previous : final;
   require(!score || start, "Punteggio nel report senza orario di inizio");
-  return { score: score && (reversed ? { a: score.b, b: score.a } : score), start, end, date: match.date };
+  const half = orient(reportScore(starts[0][4]));
+  const halftime = half ? goals.findIndex((goal) => goal.score.a === half.a && goal.score.b === half.b) + 1 : null;
+  require(half === null || halftime > 0 || (half.a === 0 && half.b === 0), "Intervallo non coerente con le mete del report");
+  const knownMinutes = goals.flatMap((goal) => goal.minute === null ? [] : [goal.minute]);
+  const timeOrdered = knownMinutes.every((minute, index) => index === 0 || minute >= knownMinutes[index - 1]);
+  return { score: orient(score), start, end, date: match.date, goals, halftime: halftime || null, timeOrdered };
 }
 
 /** Fetch only explicitly requested public ranges; never a whole roster workbook. */
@@ -124,9 +143,9 @@ export async function readReportRanges(reportUrl, ranges, { fetcher = fetch, now
   // gid in the organizer's link can refer to the archived tab. Always request LIVE by name.
   const base = `${url.origin}${url.pathname.replace(/\/edit$/, "/gviz/tq")}`;
   const signal = AbortSignal.timeout(12000);
-  return Promise.all(ranges.map(async ([sheet, range, headers = "0"]) => {
+  return Promise.all(ranges.map(async ([sheet, range, headers = "0", query = "select *"]) => {
     const response = await fetcher(`${base}?${new URLSearchParams({
-      tqx: "out:csv", sheet, range, headers, tq: "select *", v: String(now),
+      tqx: "out:csv", sheet, range, headers, tq: query, v: String(now),
     })}`, { cache: "no-store", credentials: "omit", signal });
     require(response.ok, `Report HTTP ${response.status}`);
     require(/text\/csv/i.test(response.headers.get("content-type") || ""), "Report non disponibile come CSV pubblico");
@@ -151,7 +170,7 @@ export async function requestReport(match, teams, previous = null,
   if (previous?.context !== context) previous = null;
   try {
     const responses = await readReportRanges(match.reportUrl,
-      [["Foglio di gara (LIVE)", "C4:C7"], ["Foglio di gara (LIVE)", "E12:G200"]], { fetcher, now: attemptedAt });
+      [["Foglio di gara (LIVE)", "C4:C7"], ["Foglio di gara (LIVE)", "C12:I200", "0", "select C,D,E,F,G,I"]], { fetcher, now: attemptedAt });
     return { report: parseReport(...responses, match, teams, aliases), checkedAt: clock(), attemptedAt, interval,
       error: null, url: match.reportUrl, context };
   } catch (error) {
@@ -197,6 +216,8 @@ export function inReportRecoveryWindow(match, now = new Date()) {
 export function shouldCheckReport(match, entry, now = new Date(), { force = false, detail = true } = {}) {
   if (!match.reportUrl) return false;
   if (entry && entry.url !== match.reportUrl) entry = null;
+  // Historical finals need one initial report read for their goal-by-goal view.
+  if (detail && !entry) return true;
   if (force && detail) return true;
   if (match.resultState === "complete" || !inReportRecoveryWindow(match, now)) return false;
   if (force) return true;

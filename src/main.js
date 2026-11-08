@@ -1,4 +1,6 @@
 import "./style.css";
+import { escapeHtml as escape } from "./html.js";
+import { MATCH_TABS, gameTimeline, scoreCharts, scoreSequence } from "./match-timeline.js";
 import { REPORT_INTERVAL, inReportRecoveryWindow, reportContext, reportView, requestReport } from "./reports.js";
 import { requestMatchPlayers } from "./match-players.js";
 import { createReportQueue, nextReportCheckDelay, planReportChecks } from "./report-refresh.js";
@@ -33,6 +35,7 @@ let divisionRevision = 0;
 const snapshots = new Map();
 const reports = new Map();
 const playerReports = new Map();
+const matchViews = new Map();
 const checkReportBatch = createReportQueue();
 let reportTimer;
 let data = null;
@@ -114,14 +117,6 @@ function changeDivision(id, { fromNavigation = false } = {}) {
   if (!fromNavigation) document.querySelector("#division")?.focus({ preventScroll: true });
 }
 
-const escape = (value) =>
-  String(value ?? "").replace(
-    /[&<>"']/g,
-    (character) =>
-      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[
-        character
-      ],
-  );
 const empty = (text) => `<div class="empty">${escape(text)}</div>`;
 const team = (id) => data.teams.find((candidate) => candidate.id === id);
 const teamLink = (id) =>
@@ -140,6 +135,11 @@ const currentEntry = (entries, match) => {
 };
 const currentReport = (match) => currentEntry(reports, match);
 const currentPlayers = (match) => currentEntry(playerReports, match);
+const matchView = (match) => {
+  const key = reportKey(match);
+  if (!matchViews.has(key)) matchViews.set(key, { tab: "charts", axis: "point" });
+  return matchViews.get(key);
+};
 const resultView = (match, now) => reportView(match, currentReport(match), now);
 const resultState = (match, now) => resultView(match, now).state;
 const score = (match) => {
@@ -255,9 +255,44 @@ function updateReportDisplay() {
         ?.querySelector("summary").focus({ preventScroll: true });
     }
   }
+  const analysisId = document.querySelector("[data-match-analysis]")?.dataset.matchAnalysis;
+  if (analysisId) {
+    const match = data.matches.find((candidate) => candidate.id === analysisId);
+    if (match) renderMatchAnalysis(match);
+  }
   if (active && !active.isConnected && focusedHref) {
     [...content.querySelectorAll("a[href]")].find((link) => link.getAttribute("href") === focusedHref)?.focus({ preventScroll: true });
   }
+}
+
+function renderMatchAnalysis(match) {
+  const entry = currentReport(match);
+  for (const [id, markup] of [
+    ["match-sequence", scoreSequence(match, data.teams, entry)],
+    ["match-charts", scoreCharts(match, data.teams, entry, matchView(match).axis)],
+    ["match-timeline", gameTimeline(match, data.teams, entry)],
+  ]) {
+    const node = document.getElementById(id);
+    if (node && node.dataset.renderedMarkup !== markup) {
+      node.innerHTML = markup;
+      node.dataset.renderedMarkup = markup;
+    }
+  }
+}
+
+function selectMatchTab(value, focus = false) {
+  if (!Object.hasOwn(MATCH_TABS, value)) return;
+  const id = document.querySelector("[data-match-analysis]")?.dataset.matchAnalysis;
+  const match = data?.matches.find((candidate) => candidate.id === id);
+  if (!match) return;
+  matchView(match).tab = value;
+  content.querySelectorAll("[data-match-tab]").forEach((button) => {
+    const selected = button.dataset.matchTab === value;
+    button.setAttribute("aria-selected", String(selected));
+    button.tabIndex = selected ? 0 : -1;
+  });
+  content.querySelectorAll(".match-panel").forEach((panel) => { panel.hidden = panel.id !== `match-panel-${value}`; });
+  if (focus) document.getElementById(`match-tab-${value}`)?.focus({ preventScroll: true });
 }
 
 async function refreshReports({ manual = false } = {}) {
@@ -594,30 +629,30 @@ function matchPage(id) {
   const match = data.matches.find((candidate) => candidate.id === id);
   if (!match) return unknown();
   const forms = evaluationFormOptions(data, id);
-  const evaluations = data.sotg.filter(
-    (evaluation) =>
-      evaluation.matchId === id &&
-      [...evaluation.categories, evaluation.total, evaluation.comment].some(
-        (value) => value !== null,
-      ),
-  );
-  content.innerHTML = `<a class="back" href="#/">← Torna alle partite</a><p class="eyebrow">${escape(id)} · ${PHASES[match.phase]}</p><h1 class="match-heading">${participant(match.a)}<span>vs</span>${participant(match.b)}</h1>
-    <div class="match-summary"><div class="match-result" data-result="${escape(id)}" data-detail="true" aria-live="polite">${resultMarkup(match, true)}</div><div><p>${escape(formatDate(match.date))} · ${escape(match.start || "Orario da definire")}${match.end ? `–${escape(match.end)}` : ""}</p><p>${location(match)}</p></div></div>
-    <section id="match-report" data-match="${escape(id)}" aria-label="Aggiornamento report">${reportMarkup(match)}</section>
-    ${[match.a, match.b]
-      .filter((side) => !side.teamId)
-      .map(
-        (side) =>
-          `<p class="muted">${escape(side.slot)}: ${escape(slotMeaning(side.slot))}. La fonte non ha ancora indicato la squadra.</p>`,
-      )
-      .join("")}
-    <section><div class="section-heading"><h2>Spirit of the Game <span class="muted">SOTG</span></h2>${evaluationFormControl(forms)}</div><p>Valutazione dello spirito sportivo: ogni squadra valuta l’avversaria in cinque categorie.</p>
-      ${forms.some((form) => form.warning) ? '<p class="form-warning">Il link originale precompila squadre diverse da quelle di questa partita. Controlla e correggi i campi squadra nel modulo prima di inviarlo.</p>' : ""}
-      ${!forms.length ? '<p class="muted">Link di valutazione non disponibile nella fonte.</p>' : ""}
-      ${evaluations.length ? evaluations.map((evaluation) => `<article class="evaluation"><h3>${teamLink(evaluation.evaluatingTeamId)} valuta ${teamLink(evaluation.evaluatedTeamId)}</h3><dl>${data.sotgCategories.map((category, index) => `<div><dt>${escape(category)}</dt><dd>${shown(evaluation.categories[index])}</dd></div>`).join("")}<div class="total"><dt>Totale</dt><dd>${shown(evaluation.total)}</dd></div></dl><p>${evaluation.comment === null ? "Commento non pubblicato" : escape(evaluation.comment)}</p></article>`).join("") : empty("Valutazioni non ancora pubblicate")}
-      ${evaluations.length === 1 ? '<p class="muted">L’altra valutazione non è ancora pubblicata.</p>' : ""}</section>
-    <section class="players-section" id="match-players" data-match="${escape(id)}">${matchPlayersMarkup(match)}</section>
-    <p class="muted">Fonte: ${escape(match.provenance.sheet)}!${escape(match.provenance.range)} · <a href="${data.sourceUrl}?gid=1898128397&range=${encodeURIComponent(match.provenance.range)}" target="_blank" rel="noopener noreferrer">Vedi nel foglio ↗</a></p>`;
+  const view = matchView(match);
+  const evaluations = data.sotg.filter((evaluation) => evaluation.matchId === id
+    && [...evaluation.categories, evaluation.total, evaluation.comment].some((value) => value !== null));
+  const spirit = `<h2>Spirit of the Game <span class="muted">SOTG</span></h2><p>Valutazione dello spirito sportivo: ogni squadra valuta l’avversaria in cinque categorie.</p>
+    ${!forms.length ? '<p class="muted">Link di valutazione non disponibile nella fonte.</p>' : ""}
+    ${evaluations.length ? evaluations.map((evaluation) => `<article class="evaluation"><h3>${teamLink(evaluation.evaluatingTeamId)} valuta ${teamLink(evaluation.evaluatedTeamId)}</h3><dl>${data.sotgCategories.map((category, index) => `<div><dt>${escape(category)}</dt><dd>${shown(evaluation.categories[index])}</dd></div>`).join("")}<div class="total"><dt>Totale</dt><dd>${shown(evaluation.total)}</dd></div></dl><p>${evaluation.comment === null ? "Commento non pubblicato" : escape(evaluation.comment)}</p></article>`).join("") : empty("Valutazioni non ancora pubblicate")}
+    ${evaluations.length === 1 ? '<p class="muted">L’altra valutazione non è ancora pubblicata.</p>' : ""}`;
+  content.innerHTML = `<a class="back" href="#/">← Torna alle partite</a>
+    <section class="match-overview"><p class="eyebrow">${escape(id)} · ${PHASES[match.phase]}</p>
+      <h1 class="match-heading"><span class="team-a">${participant(match.a)}</span><span>vs</span><span class="team-b">${participant(match.b)}</span></h1>
+      <div class="match-summary"><div class="match-result" data-result="${escape(id)}" data-detail="true" aria-live="polite">${resultMarkup(match, true)}</div><div class="match-meta"><p>${escape(formatDate(match.date))} · ${escape(match.start || "Orario da definire")}${match.end ? `–${escape(match.end)}` : ""}</p><p>${location(match)}</p></div><div class="match-actions">${evaluationFormControl(forms)}</div></div>
+      ${forms.some((form) => form.warning) ? '<p class="form-warning">Il link Valuta originale precompila squadre diverse. Controlla i campi squadra nel modulo prima di inviarlo.</p>' : ""}
+      ${[match.a, match.b].filter((side) => !side.teamId).map((side) => `<p class="muted">${escape(side.slot)}: ${escape(slotMeaning(side.slot))}. La fonte non ha ancora indicato la squadra.</p>`).join("")}
+      <div id="match-sequence">${scoreSequence(match, data.teams, currentReport(match))}</div>
+    </section>
+    <section class="match-workspace" data-match-analysis="${escape(id)}"><div class="match-tabs" role="tablist" aria-label="Dettagli della partita">${Object.entries(MATCH_TABS).map(([key, label]) => `<button type="button" role="tab" id="match-tab-${key}" data-match-tab="${key}" aria-selected="${view.tab === key}" aria-controls="match-panel-${key}" tabindex="${view.tab === key ? 0 : -1}">${label}</button>`).join("")}</div>
+      ${Object.keys(MATCH_TABS).map((key) => `<section role="tabpanel" class="match-panel" id="match-panel-${key}" aria-labelledby="match-tab-${key}" tabindex="0" ${view.tab !== key ? "hidden" : ""}>${{
+        charts: `<div id="match-charts">${scoreCharts(match, data.teams, currentReport(match), view.axis)}</div>`,
+        timeline: `<div id="match-timeline">${gameTimeline(match, data.teams, currentReport(match))}</div>`,
+        players: `<div class="players-section" id="match-players" data-match="${escape(id)}">${matchPlayersMarkup(match)}</div>`,
+        spirit,
+      }[key]}</section>`).join("")}
+    </section>
+    <details class="match-source-details"><summary>Fonte e aggiornamenti</summary><div id="match-report" data-match="${escape(id)}" aria-label="Aggiornamento report">${reportMarkup(match)}</div><p class="muted">Fonte: ${escape(match.provenance.sheet)}!${escape(match.provenance.range)} · <a href="${data.sourceUrl}?gid=1898128397&range=${encodeURIComponent(match.provenance.range)}" target="_blank" rel="noopener noreferrer">Vedi nel foglio ↗</a></p></details>`;
 }
 
 function poolTable(pool) {
@@ -756,6 +791,31 @@ async function refresh({ manual = false } = {}) {
   if (restoreRefreshFocus && document.activeElement === document.body)
     document.querySelector("#refresh").focus({ preventScroll: true });
 }
+
+content.addEventListener("click", (event) => {
+  const tab = event.target.closest("[data-match-tab]");
+  if (tab) selectMatchTab(tab.dataset.matchTab);
+  const axis = event.target.closest("[data-chart-axis]");
+  if (axis && ["point", "time"].includes(axis.dataset.chartAxis)) {
+    const id = document.querySelector("[data-match-analysis]")?.dataset.matchAnalysis;
+    const match = data?.matches.find((candidate) => candidate.id === id);
+    if (match) {
+      matchView(match).axis = axis.dataset.chartAxis;
+      renderMatchAnalysis(match);
+      content.querySelector(`[data-chart-axis="${axis.dataset.chartAxis}"]`)?.focus({ preventScroll: true });
+    }
+  }
+});
+content.addEventListener("keydown", (event) => {
+  const tab = event.target.closest("[data-match-tab]");
+  if (!tab || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+  event.preventDefault();
+  const keys = Object.keys(MATCH_TABS);
+  const index = keys.indexOf(tab.dataset.matchTab);
+  const next = event.key === "Home" ? 0 : event.key === "End" ? keys.length - 1
+    : (index + (event.key === "ArrowRight" ? 1 : -1) + keys.length) % keys.length;
+  selectMatchTab(keys[next], true);
+});
 
 content.addEventListener("change", (event) => {
   if (event.target.id === "division") changeDivision(event.target.value);
