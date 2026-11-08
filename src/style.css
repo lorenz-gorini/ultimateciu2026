@@ -1153,7 +1153,7 @@ footer a {
     flex: 1 1 calc(50% - 12px);
   }
   .fixture {
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr);
     padding: 14px 12px;
     gap: 10px;
   }
@@ -1184,11 +1184,7 @@ footer a {
     gap: 2px;
     font-size: .73rem;
   }
-  .detail-link {
-    grid-column: 2;
-    grid-row: 1;
-    padding: 8px 0;
-  }
+  .detail-link { display: none; }
   .date-group h2 {
     font-size: 1rem;
     justify-content: space-between;
