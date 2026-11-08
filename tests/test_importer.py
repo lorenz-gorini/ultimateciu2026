@@ -164,6 +164,66 @@ class ImporterTests(unittest.TestCase):
         self.assertEqual(len(data["matches"]), 56)
         self.assertEqual(data["carryovers"][0]["score"], {"a": 0, "b": 15})
 
+    def test_synthetic_ranked_standings_preserve_original_team_identities(self) -> None:
+        book = openpyxl.load_workbook(io.BytesIO(self.payload))
+        sheet = book["Classifiche e format"]
+        # SYNTHETIC: move X2 to first place; the team's identity must remain x2.
+        rows = [[sheet.cell(row, col).value for col in range(2, 7)] for row in range(21, 27)]
+        rows[0], rows[1] = rows[1], rows[0]
+        for rank, values in enumerate(rows, 1):
+            values[0] = f"{rank}X"
+            for col, value in enumerate(values, 2):
+                sheet.cell(20 + rank, col, value)
+        rank_names = {f"{rank}X": values[1] for rank, values in enumerate(rows, 1)}
+        for row in range(1, sheet.max_row + 1):
+            if sheet.cell(row, 8).value in rank_names:
+                sheet.cell(row, 9, rank_names[sheet.cell(row, 8).value])
+        games = book["Partite"]
+        for row in range(1, games.max_row + 1):
+            for slot_col, name_col in ((10, 11), (16, 15)):
+                if games.cell(row, slot_col).value in rank_names:
+                    games.cell(row, name_col, rank_names[games.cell(row, slot_col).value])
+        buffer = io.BytesIO()
+        book.save(buffer)
+        book.close()
+        data = parse_workbook(buffer.getvalue(), TEST_TIME)
+        self.assertEqual(data["teams"], self.data["teams"])
+        self.assertEqual([match for match in data["matches"] if match["phase"] == "first"],
+                         [match for match in self.data["matches"] if match["phase"] == "first"])
+        entry = data["pools"][0]["entries"][0]
+        self.assertEqual((entry["slot"], entry["teamId"]), ("1X", "x2"))
+        self.assertIn({"slot": "1X", "teamId": "x2"}, data["phaseSlots"])
+
+    def test_synthetic_initial_identity_conflicts_and_invalid_standings_fail(self) -> None:
+        for changes in ({"Partite": {"J5": "X2"}}, {"Partite": {"J5": "Y1"}},
+                        {"Classifiche e format": {"B21": "1X"}},
+                        {"Classifiche e format": {"B21": "X2"}},
+                        {"Classifiche e format": {"C21": "Unknown"}}):
+            with self.subTest(changes=changes), self.assertRaises(ImportFailure):
+                parse_workbook(synthetic_workbook(changes), TEST_TIME)
+
+    def test_synthetic_inherited_ids_reference_original_results_in_either_orientation(self) -> None:
+        book = openpyxl.load_workbook(io.BytesIO(self.payload))
+        sheet = book["Partite"]
+        sheet["L5"], sheet["N5"] = 15, 0
+        sheet["I41"], sheet["K41"], sheet["O41"] = "X_1", "VOLADORA", "BFD Redshot"
+        sheet["L41"], sheet["N41"] = 0, 15
+        buffer = io.BytesIO()
+        book.save(buffer)
+        data = parse_workbook(buffer.getvalue(), TEST_TIME)
+        self.assertEqual(len(data["matches"]), 56)
+        self.assertEqual(len(data["carryovers"]), 6)
+        self.assertEqual(data["carryovers"][0]["score"], {"a": 0, "b": 15})
+        for cell, value in (("N41", 14), ("I41", "P_1"), ("K41", "UFO")):
+            original = sheet[cell].value
+            sheet[cell] = value
+            buffer = io.BytesIO()
+            book.save(buffer)
+            with self.subTest(cell=cell), self.assertRaises(ImportFailure):
+                parse_workbook(buffer.getvalue(), TEST_TIME)
+            sheet[cell] = original
+        book.close()
+
     def test_synthetic_published_players_are_team_list(self) -> None:
         data = parse_workbook(synthetic_workbook({"Statistiche": {"A3": "BFD Redshot", "B3": "Test", "C3": "Synthetic", "N3": 0, "O3": 2, "P3": 2, "D3": "0 | 2"}}), TEST_TIME)
         self.assertEqual(len(data["players"]), 1)

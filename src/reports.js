@@ -1,6 +1,7 @@
 import { matchState, romeNow } from "./data.js";
 
 export const REPORT_INTERVAL = 60000;
+export const OVERVIEW_REPORT_INTERVAL = 5 * REPORT_INTERVAL;
 export const REPORT_WINDOW = 2 * 60 * 60 * 1000;
 const MAX_BYTES = 128 * 1024;
 const MONTHS = ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno", "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre"];
@@ -143,16 +144,18 @@ export function reportContext(match, teams, aliases = {}) {
 }
 
 /** Public read-only CORS requests, no credentials, cookies, API key or server. */
-export async function requestReport(match, teams, previous = null, { fetcher = fetch, clock = Date.now, aliases = {} } = {}) {
+export async function requestReport(match, teams, previous = null,
+  { fetcher = fetch, clock = Date.now, aliases = {}, interval = REPORT_INTERVAL } = {}) {
   const attemptedAt = clock();
   const context = reportContext(match, teams, aliases);
   if (previous?.context !== context) previous = null;
   try {
     const responses = await readReportRanges(match.reportUrl,
       [["Foglio di gara (LIVE)", "C4:C7"], ["Foglio di gara (LIVE)", "E12:G200"]], { fetcher, now: attemptedAt });
-    return { report: parseReport(...responses, match, teams, aliases), checkedAt: clock(), attemptedAt, error: null, url: match.reportUrl, context };
+    return { report: parseReport(...responses, match, teams, aliases), checkedAt: clock(), attemptedAt, interval,
+      error: null, url: match.reportUrl, context };
   } catch (error) {
-    return { report: previous?.report || null, checkedAt: previous?.checkedAt || null, attemptedAt,
+    return { report: previous?.report || null, checkedAt: previous?.checkedAt || null, attemptedAt, interval,
       error: error instanceof Error ? error.message : "Report non raggiungibile", url: match.reportUrl, context };
   }
 }
@@ -162,8 +165,8 @@ export function reportView(match, entry, now = new Date()) {
   const official = { score: match.score, state: matchState(match, now) };
   if (match.resultState === "complete" || !entry?.report?.score) return official;
   const report = entry.report;
-  const stale = entry.error || (!report.end && (!inReportWindow(match, now)
-    || now.getTime() - entry.checkedAt > 2 * REPORT_INTERVAL + 5000));
+  const stale = entry.error || (!report.end && (!inReportRecoveryWindow(match, now)
+    || now.getTime() - entry.checkedAt > 2 * (entry.interval || REPORT_INTERVAL) + 5000));
   const local = romeNow(now);
   const started = `${report.date}T${report.start}` <= `${local.date}T${local.time}`;
   return { score: report.score, state: stale ? "report-stale" : report.end ? "provisional"
@@ -184,12 +187,21 @@ export function inReportWindow(match, now = new Date()) {
   return local.date === match.date && local.time === match.start && Math.abs(+now - instant) <= REPORT_WINDOW;
 }
 
-/** Automatic reads only within ±2 hours; manual detail refresh is an explicit exception. */
-export function shouldCheckReport(match, entry, now = new Date(), force = false) {
+/** Today's started/untimed games plus the ±2-hour window, including across midnight. */
+export function inReportRecoveryWindow(match, now = new Date()) {
+  const local = romeNow(now);
+  return inReportWindow(match, now) || (match.date === local.date && (!match.start || match.start <= local.time));
+}
+
+/** A manual overview check bypasses the interval, but still excludes official finals and old days. */
+export function shouldCheckReport(match, entry, now = new Date(), { force = false, detail = true } = {}) {
   if (!match.reportUrl) return false;
   if (entry && entry.url !== match.reportUrl) entry = null;
+  if (force && detail) return true;
+  if (match.resultState === "complete" || !inReportRecoveryWindow(match, now)) return false;
   if (force) return true;
-  if (match.resultState === "complete" || entry?.report?.end || !inReportWindow(match, now)) return false;
-  if (entry && now.getTime() - entry.attemptedAt < REPORT_INTERVAL) return false;
+  if (entry?.report?.end) return false;
+  const interval = detail ? REPORT_INTERVAL : OVERVIEW_REPORT_INTERVAL;
+  if (entry && now.getTime() - entry.attemptedAt < interval) return false;
   return true;
 }

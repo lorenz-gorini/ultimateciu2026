@@ -102,16 +102,16 @@ test("CSV parsing handles escaped quotes/newlines and rejects malformed or overs
   }
 });
 
-test("report polling uses 60 seconds only within ±2 hours, with an explicit manual exception", () => {
+test("detail polling uses 60 seconds during the recovery window, with an explicit manual exception", () => {
   const entry = liveEntry();
   assert.equal(REPORT_INTERVAL, 60000);
   assert.equal(shouldCheckReport(reportMatch, null, liveTime), true);
   assert.equal(shouldCheckReport(reportMatch, entry, new Date(+liveTime + 59999)), false);
   assert.equal(shouldCheckReport(reportMatch, entry, new Date(+liveTime + 60000)), true);
-  assert.equal(shouldCheckReport(reportMatch, entry, liveTime, true), true);
+  assert.equal(shouldCheckReport(reportMatch, entry, liveTime, { force: true }), true);
   assert.equal(shouldCheckReport({ ...reportMatch, start: "16:00" }, null, liveTime), false);
   assert.equal(shouldCheckReport(reportMatch, null, new Date("2026-10-26T08:00:00Z")), false);
-  assert.equal(shouldCheckReport(reportMatch, null, new Date("2026-10-26T08:00:00Z"), true), true);
+  assert.equal(shouldCheckReport(reportMatch, null, new Date("2026-10-26T08:00:00Z"), { force: true }), true);
   assert.equal(shouldCheckReport({ ...reportMatch, resultState: "complete" }, entry, new Date(+liveTime + 60000)), false);
   assert.equal(shouldCheckReport(reportMatch, { ...entry, report: { ...entry.report, end: "10:20" } },
     new Date(+liveTime + 60000)), false);
@@ -130,7 +130,7 @@ test("±2-hour window respects exact boundaries, Rome midnight and winter/summer
   assert.equal(inReportWindow({ ...reportMatch, date: "2026-10-27", start: "00:30" },
     new Date("2026-10-26T22:00:00Z")), true);
   assert.equal(inReportWindow({ ...reportMatch, start: null }, liveTime), false);
-  const outside = new Date("2026-10-25T12:00:00Z");
+  const outside = new Date("2026-10-26T12:00:00Z");
   assert.equal(shouldCheckReport(reportMatch, { ...liveEntry(), error: "offline" }, outside), false);
   assert.equal(reportView(reportMatch, { ...liveEntry(), checkedAt: +outside }, outside).state, "report-stale");
   const midnight = new Date("2026-10-26T23:10:00Z");

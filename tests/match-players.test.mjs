@@ -135,7 +135,7 @@ test("only safe named-sheet columns are requested, with failure and changed-matc
     { fetcher: async () => new Response("denied", { status: 403 }) })).error);
 });
 
-test("opening a past detail reads once; automatic player refresh is restricted to ±2 hours", () => {
+test("opening a past detail reads once; automatic player refresh uses today's recovery window", () => {
   const previous = { attemptedAt: +now, data: parse() };
   const past = new Date("2026-10-27T08:00:00Z");
   assert.equal(shouldCheckMatchPlayers(match, null, null, past), true);

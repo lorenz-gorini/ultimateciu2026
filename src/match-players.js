@@ -1,4 +1,4 @@
-import { canonicalReportTeam, inReportWindow, parseCsv, parseReportIdentity,
+import { canonicalReportTeam, inReportRecoveryWindow, parseCsv, parseReportIdentity,
   readReportRanges, reportContext, REPORT_INTERVAL } from "./reports.js";
 
 const RANGES = [
@@ -92,10 +92,10 @@ export async function requestMatchPlayers(match, teams, previous = null,
   }
 }
 
-/** Called only for an open detail: one initial read; automatic repeats within ±2 hours. */
+/** Called only for an open detail: one initial read; repeats during today's recovery window. */
 export function shouldCheckMatchPlayers(match, entry, scoreEntry, now = new Date(), force = false) {
   if (!match.reportUrl) return false;
   if (force || !entry) return true;
-  return match.resultState !== "complete" && !scoreEntry?.report?.end && inReportWindow(match, now)
+  return match.resultState !== "complete" && !scoreEntry?.report?.end && inReportRecoveryWindow(match, now)
     && +now - entry.attemptedAt >= REPORT_INTERVAL;
 }

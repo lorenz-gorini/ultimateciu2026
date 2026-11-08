@@ -187,14 +187,34 @@ def parse_workbook(payload: bytes, fetched_at: str, source_mode: str = "live", *
     for index in range(10):
         require(stats.get(2, index + 4) == f"{index + 1}a", "Statistiche: numbered match-slot headings changed")
 
-    # Initial slots are explicit identities, distinct from rank qualifiers (1X).
-    name_slots = {}
+    # The calendar retains seed identities (X1); completed standings use ranks (1X).
+    # Never turn a rank into an identity: those codes can refer to different teams.
+    initial_pool_ids = "".join(pool for pool, _ in layout["initial"])
+    name_slots, slot_names = {}, {}
+    for row in range(5, layout["second_start"]):
+        match_id = games.get(row, 9)
+        if match_id is None:
+            continue
+        require(isinstance(match_id, str) and re.fullmatch(f"[{initial_pool_ids}]_\\d+", match_id),
+                f"Partite!I{row}: invalid first-phase match ID")
+        for slot_col, name_col in ((10, 11), (16, 15)):
+            slot, name = games.get(row, slot_col), string(games.get(row, name_col), f"Partite row {row}: team")
+            require(isinstance(slot, str) and re.fullmatch(f"{match_id[0]}[1-6]", slot),
+                    f"Partite row {row}: invalid initial identity slot {slot!r}")
+            require(name not in name_slots or name_slots[name] == slot, f"Partite row {row}: conflicting team identity")
+            require(slot not in slot_names or slot_names[slot] == name, f"Partite row {row}: conflicting initial slot")
+            name_slots[name], slot_names[slot] = slot, name
+    require(set(slot_names) == {f"{pool}{rank}" for pool in initial_pool_ids for rank in range(1, 7)},
+            "Calendar does not identify every initial team slot")
     for pool, rows in layout["initial"]:
-        for row in rows:
-            slot, name = standings.get(row, 2), standings.get(row, 3)
-            require(isinstance(slot, str) and re.fullmatch(f"{pool}[1-6]", slot), f"Initial pool row {row}: invalid slot")
-            require(name not in name_slots and slot not in name_slots.values(), "Initial team-name/slot collision")
-            name_slots[string(name, f"C{row}")] = slot
+        slots = [standings.get(row, 2) for row in rows]
+        require(set(slots) in ({f"{pool}{rank}" for rank in range(1, 7)},
+                               {f"{rank}{pool}" for rank in range(1, 7)}),
+                f"Initial pool {pool}: expected six distinct seed slots or rank qualifiers")
+        names_in_pool = [standings.get(row, 3) for row in rows]
+        require(len(set(names_in_pool)) == len(rows)
+                and set(names_in_pool) == {name for name, slot in name_slots.items() if slot[0] == pool},
+                f"Initial pool {pool}: team names disagree with calendar identities")
     teams = []
     for row in layout["team_rows"]:
         name = string(standings.get(row, 3), f"C{row}")
@@ -222,8 +242,7 @@ def parse_workbook(payload: bytes, fetched_at: str, source_mode: str = "live", *
                 "b": numeric(games.get(row, 14), f"N{row}", integer=True)}
 
     second_pool_by_row = {row: pool for pool, _, _, rows in layout["second"] for row in rows}
-    initial_pool_ids = "".join(pool for pool, _ in layout["initial"])
-    matches, carryovers = [], []
+    matches, carryovers, carryover_references = [], [], []
     for row in range(5, cached[names[1]].max_row + 1):
         match_id, marker = games.get(row, 9), games.get(row, 17)
         require(marker in (None, "report", "ereditata"), f"Partite!Q{row}: unknown report/carry-over marker")
@@ -234,13 +253,15 @@ def parse_workbook(payload: bytes, fetched_at: str, source_mode: str = "live", *
             require(report_url is not None and re.fullmatch(r"https://docs\.google\.com/spreadsheets/d/[A-Za-z0-9_-]+/edit(?:[?#][^\s]*)?", report_url),
                     f"Partite!Q{row}: expected a public Google Sheets report link")
         if marker == "ereditata":
-            require(match_id is None, f"Partite!Q{row}: inherited row has a match ID")
             pool = second_pool_by_row.get(row)
             require(pool is not None, "Carry-over outside second phase")
             carryovers.append({"pool": pool,
                                "a": participant(games.get(row, 10), games.get(row, 11), f"J{row}"),
                                "b": participant(games.get(row, 16), games.get(row, 15), f"P{row}"),
                                "score": score_at(row), "provenance": provenance(names[1], f"J{row}:Q{row}")})
+            if match_id is not None:
+                carryover_references.append((carryovers[-1], match_id, row))
+            continue  # A repeated original ID is a reference, never a new fixture.
         if match_id is None:
             # Never silently drop a fixture with a removed ID.
             require(marker is not None or not (isinstance(games.get(row, 10), str) and SLOT.fullmatch(games.get(row, 10))),
@@ -267,6 +288,18 @@ def parse_workbook(payload: bytes, fetched_at: str, source_mode: str = "live", *
                         "b": participant(games.get(row, 16), games.get(row, 15), f"P{row}"),
                         "score": score, "resultState": state, "reportUrl": report_url,
                         "provenance": provenance(names[1], f"B{row}:U{row}")})
+
+    original_matches = {match["id"]: match for match in matches if match["phase"] == "first"}
+    for carry, match_id, row in carryover_references:
+        require(match_id in original_matches, f"Partite!I{row}: inherited ID does not reference a first-phase match")
+        original = original_matches[match_id]
+        require(original["resultState"] == "complete", f"Partite!I{row}: inherited ID has no confirmed original result")
+        require(carry["a"]["teamId"] != carry["b"]["teamId"], f"Partite!I{row}: inherited team plays itself")
+        for side in ("a", "b"):
+            original_side = next((key for key in ("a", "b")
+                                  if original[key]["teamId"] == carry[side]["teamId"]), None)
+            require(original_side is not None and carry["score"][side] == original["score"][original_side],
+                    f"Partite!I{row}: inherited teams/scores disagree with original match")
 
     pools = []
     pool_specs = [(pool, f"Girone {pool}", rows, 2, "first") for pool, rows in layout["initial"]]

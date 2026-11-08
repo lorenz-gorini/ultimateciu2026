@@ -1,6 +1,7 @@
 import "./style.css";
-import { REPORT_INTERVAL, inReportWindow, reportContext, reportView, requestReport, shouldCheckReport } from "./reports.js";
-import { requestMatchPlayers, shouldCheckMatchPlayers } from "./match-players.js";
+import { REPORT_INTERVAL, inReportRecoveryWindow, reportContext, reportView, requestReport } from "./reports.js";
+import { requestMatchPlayers } from "./match-players.js";
+import { createReportQueue, nextReportCheckDelay, planReportChecks } from "./report-refresh.js";
 import { DIVISIONS, DIVISION_KEY, initialDivision, cacheKey } from "./divisions.js";
 import {
   PHASES,
@@ -32,7 +33,7 @@ let divisionRevision = 0;
 const snapshots = new Map();
 const reports = new Map();
 const playerReports = new Map();
-const pendingReports = new Set();
+const checkReportBatch = createReportQueue();
 let reportTimer;
 let data = null;
 let error = null;
@@ -177,7 +178,7 @@ function renderFreshness() {
   const restoreInfo = freshness.querySelector(".refresh-info")?.open;
   freshness.innerHTML = `<div class="freshness-meta"><p class="download">${data ? `Download: <strong>${escape(timestamp(data.fetchedAt))}</strong> <span class="age">· ${ageText()}</span>` : "Nessun download disponibile"}</p>
     <p class="source-updated">Foglio: <strong>${escape(timestamp(data?.sourceReportedAt))}</strong>${data?.sourceMode === "frozen" ? " · Copia locale" : ""}</p>
-    <details class="refresh-info" ${restoreInfo ? "open" : ""}><summary>Come funziona Aggiorna</summary><p>Aggiorna legge l’ultima copia pubblicata del calendario e ricontrolla il report della partita aperta. GitHub importa il foglio principale ogni 15 minuti nel weekend e ogni ora nei feriali, con possibili ritardi. Il controllo automatico dei report avviene ogni 60 secondi solo tra 2 ore prima e 2 ore dopo l’inizio previsto, mentre questa scheda è visibile, e si ferma a fine partita. Roster e statistiche vengono letti anche all’apertura del dettaglio. Il risultato finale viene dalle colonne L–N di Partite.</p></details>
+    <details class="refresh-info" ${restoreInfo ? "open" : ""}><summary>Come funziona Aggiorna</summary><p>Aggiorna legge l’ultima copia pubblicata del calendario e forza il controllo dei fogli di gara degli incontri già iniziati oggi e di quelli previsti nelle prossime 2 ore, senza un risultato finale nel calendario. Il controllo comprende tutta la divisione scelta, anche le partite nascoste dai filtri. Finché questa scheda è visibile, i punteggi si aggiornano automaticamente ogni 5 minuti, ogni 60 secondi nel dettaglio della partita. Se il report indica la fine, il risultato appare come da confermare e il controllo automatico si ferma. GitHub importa il calendario ogni 15 minuti nel weekend e ogni ora nei feriali, con possibili ritardi; i suoi risultati finali hanno sempre precedenza. Roster e statistiche vengono letti all’apertura del dettaglio. Aggiorna ricontrolla la partita aperta anche fuori dalla finestra indicata.</p></details>
     ${error ? `<p role="alert" class="error">Aggiornamento non riuscito. ${data ? `Dati conservati (${ageText()}).` : "Riprova con Aggiorna."} <span class="muted">${escape(error)}</span></p>` : ""}</div>
     <button id="refresh" ${busy ? "disabled" : ""}>${busy ? "Aggiornamento…" : "Aggiorna"}</button>`;
   document.querySelector("#refresh").addEventListener("click", () =>
@@ -209,8 +210,8 @@ function reportMarkup(match) {
   if (!match.reportUrl) return '<p class="muted">Report non ancora disponibile nella fonte.</p>';
   const entry = currentReport(match);
   return `<a class="button-link secondary" href="${escape(match.reportUrl)}" target="_blank" rel="noopener noreferrer">Foglio di gara ↗</a>
-    <p class="muted">${match.resultState === "complete" ? "Risultato finale dalle colonne L–N di Partite; il report non lo sostituisce." : "Parziale provvisorio dal Foglio di gara (LIVE). Il risultato è definitivo solo quando compare in Partite."} Controllo automatico ogni 60 secondi nella finestra di ±2 ore dall’inizio previsto, fino a fine partita.</p>
-    <p class="muted">${entry?.checkedAt ? `Punteggio nel report verificato: ${escape(timestamp(entry.checkedAt))}.` : entry?.error ? "Nessuna lettura valida del punteggio nel report." : match.resultState === "complete" || !inReportWindow(match) ? "Controllo automatico del punteggio non attivo per questa partita. Puoi richiederlo con Aggiorna." : "Controllo del punteggio nel report…"}${entry?.report && !entry.report.start ? " Il report non indica ancora l’inizio della partita." : ""}</p>
+    <p class="muted">${match.resultState === "complete" ? "Risultato finale dalle colonne L–N di Partite; il report non lo sostituisce." : "Parziale provvisorio dal Foglio di gara (LIVE). Il risultato è definitivo solo quando compare in Partite."} Controllo automatico ogni 60 secondi per gli incontri già iniziati oggi o entro 2 ore dall’inizio previsto, fino a fine partita.</p>
+    <p class="muted">${entry?.checkedAt ? `Punteggio nel report verificato: ${escape(timestamp(entry.checkedAt))}.` : entry?.error ? "Nessuna lettura valida del punteggio nel report." : match.resultState === "complete" || !inReportRecoveryWindow(match) ? "Controllo automatico del punteggio non attivo per questa partita. Puoi richiederlo con Aggiorna." : "Controllo del punteggio nel report…"}${entry?.report && !entry.report.start ? " Il report non indica ancora l’inizio della partita." : ""}</p>
     ${entry?.error ? `<p class="form-warning" role="status">Verifica report non riuscita: ${escape(entry.error)}. ${match.resultState === "complete" ? "Il risultato finale del calendario resta valido." : entry.report?.score ? "Ultimo parziale conservato e indicato come non live." : "Consulta il foglio originale."}</p>` : ""}`;
 }
 
@@ -261,55 +262,45 @@ function updateReportDisplay() {
 
 async function refreshReports({ manual = false } = {}) {
   if (!data || document.hidden) return { count: 0, failed: 0 };
-  const requestedData = data, revision = divisionRevision;
+  const requestedData = data, revision = divisionRevision, requestedDivision = division;
+  const aliases = reportAliases();
   const openId = locationHash().startsWith("/match/") ? decodeURIComponent(locationHash().split("/")[2]) : null;
-  const candidates = data.matches.map((match) => ({ match,
-    scores: shouldCheckReport(match, currentReport(match), new Date(), manual && match.id === openId),
-    players: match.id === openId && shouldCheckMatchPlayers(match, currentPlayers(match), currentReport(match), new Date(), manual),
-  })).filter((task) => !pendingReports.has(reportKey(task.match)) && (task.scores || task.players));
-  const keys = candidates.map((task) => reportKey(task.match));
-  keys.forEach((key) => pendingReports.add(key));
-  const check = async ({ match, scores, players }) => {
-    const key = reportKey(match);
-    try {
-      const options = { aliases: reportAliases() };
+  const candidates = planReportChecks(data, { openId, manual, scoreFor: currentReport, playersFor: currentPlayers });
+  const calendarMessage = refreshStatus.textContent;
+  if (manual && candidates.length) refreshStatus.textContent = `${calendarMessage} Verifica di ${candidates.length} report…`;
+  const result = await checkReportBatch(candidates, {
+    keyFor: ({ match, players }) => `${revision}:${requestedDivision}:${match.id}:${reportContext(match, requestedData.teams, aliases)}:${players}`,
+    isCurrent: () => revision === divisionRevision,
+    check: async ({ match, scores, players, interval }) => {
+      const key = `${requestedDivision}:${match.id}`;
+      const options = { aliases, interval };
+      const context = reportContext(match, requestedData.teams, aliases);
       const [scoreEntry, playerEntry] = await Promise.all([
         scores ? requestReport(match, requestedData.teams, currentReport(match), options) : null,
         players ? requestMatchPlayers(match, requestedData.teams, currentPlayers(match), options) : null,
       ]);
-      if (revision === divisionRevision && requestedData === data) {
+      const currentMatch = data?.matches.find((candidate) => candidate.id === match.id);
+      // An unchanged JSON poll must not discard reports; changed fixture identities must.
+      if (revision === divisionRevision && currentMatch && context === reportContext(currentMatch, data.teams, reportAliases())) {
         if (scoreEntry) reports.set(key, scoreEntry);
         if (playerEntry) playerReports.set(key, playerEntry);
       }
       return scoreEntry?.error || playerEntry?.error;
-    } finally { pendingReports.delete(key); }
-  };
-  const outcomes = [];
-  let next = 0;
-  // At most four reports (eight small CSV requests) in flight at once.
-  await Promise.all(Array.from({ length: Math.min(4, candidates.length) }, async () => {
-    while (next < candidates.length && revision === divisionRevision) {
-      outcomes.push(await check(candidates[next++]));
+    },
+    onProgress: ({ count, total }) => {
+      updateReportDisplay();
+      if (manual) refreshStatus.textContent = `${calendarMessage} Report controllati: ${count}/${total}…`;
+    },
+  });
+  if (revision === divisionRevision) {
+    clearTimeout(reportTimer);
+    if (data && !document.hidden) {
+      const currentOpenId = locationHash().startsWith("/match/") ? decodeURIComponent(locationHash().split("/")[2]) : null;
+      reportTimer = setTimeout(() => refreshReports(), nextReportCheckDelay(data,
+        { openId: currentOpenId, scoreFor: currentReport, playersFor: currentPlayers }));
     }
-  }));
-  keys.forEach((key) => pendingReports.delete(key));
-  if (revision === divisionRevision) updateReportDisplay();
-  clearTimeout(reportTimer);
-  if (data && !document.hidden) {
-    // Keep each report's 60-second cadence independent of JSON checks/navigation.
-    const now = Date.now();
-    const nextOpenId = locationHash().startsWith("/match/") ? decodeURIComponent(locationHash().split("/")[2]) : null;
-    const later = new Date(now + REPORT_INTERVAL);
-    const delays = data.matches.flatMap((match) => {
-      const entries = [];
-      if (shouldCheckReport(match, currentReport(match), later)) entries.push(currentReport(match));
-      if (match.id === nextOpenId && shouldCheckMatchPlayers(match, currentPlayers(match), currentReport(match), later))
-        entries.push(currentPlayers(match));
-      return entries.map((entry) => entry ? Math.max(1000, entry.attemptedAt + REPORT_INTERVAL - now) : REPORT_INTERVAL);
-    });
-    reportTimer = setTimeout(() => refreshReports(), Math.min(REPORT_INTERVAL, ...delays));
   }
-  return { count: candidates.length, failed: outcomes.filter(Boolean).length };
+  return result;
 }
 
 function fixtureGroups(matches, anchors = false) {
@@ -752,12 +743,15 @@ async function refresh({ manual = false } = {}) {
     }
   } else if (!data) render();
   renderFreshness();
+  const calendarMessage = refreshStatus.textContent;
   const reportResult = await refreshReports({ manual });
   if (revision !== divisionRevision) return;
   busy = false;
   renderFreshness();
-  if (manual && reportResult.count) {
-    refreshStatus.textContent += ` Report verificati: ${reportResult.count - reportResult.failed}/${reportResult.count}.${reportResult.failed ? " Alcuni report non sono disponibili: consulta il dettaglio della partita." : ""}`;
+  if (manual) {
+    refreshStatus.textContent = `${calendarMessage} ${reportResult.count
+      ? `Report verificati: ${reportResult.count - reportResult.failed}/${reportResult.count}.${reportResult.failed ? " Alcuni report non sono disponibili: consulta il dettaglio della partita." : ""}`
+      : "Nessun report da verificare nella finestra corrente."}`;
   }
   if (restoreRefreshFocus && document.activeElement === document.body)
     document.querySelector("#refresh").focus({ preventScroll: true });
