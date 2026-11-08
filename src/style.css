@@ -604,10 +604,7 @@ input[type="search"] {
 }
 .fixture {
   display: grid;
-  grid-template-columns: 65px minmax(180px, 1.6fr) minmax(130px, 0.8fr) minmax(
-      170px,
-      1fr
-    ) 57px;
+  grid-template-columns: 65px minmax(0, 1fr) minmax(170px, .55fr) 57px;
   gap: 18px;
   align-items: center;
   padding: 16px 18px;
@@ -637,29 +634,29 @@ input[type="search"] {
   color: var(--muted);
   font-size: 0.72rem;
 }
-.fixture-teams {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  font-size: 0.96rem;
+.fixture-contest {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(88px, .65fr) minmax(0, 1fr);
+  gap: 12px;
+  align-items: baseline;
+  min-width: 0;
+}
+.fixture-side {
+  min-width: 0;
+  font-size: .96rem;
   font-weight: 600;
+  overflow-wrap: anywhere;
 }
-.fixture-teams a {
-  text-decoration: none;
-}
-.fixture-teams a:hover {
-  text-decoration: underline;
-}
-.versus {
-  font-size: 0.65rem;
-  color: var(--muted);
-  font-weight: 400;
-}
+.fixture-side-a { text-align: right; }
+.fixture-side-b { text-align: left; }
+.fixture-side a { text-decoration: none; }
+.fixture-side a:hover { text-decoration: underline; }
+.fixture-result { text-align: center; min-width: 0; }
 .score {
   font-variant-numeric: tabular-nums;
   font-size: 1.08rem;
   letter-spacing: 0.06em;
+  white-space: nowrap;
 }
 .score > span {
   color: #8a9794;
@@ -1029,16 +1026,17 @@ footer a {
 }
 @media (max-width: 900px) {
   .fixture {
-    grid-template-columns: 60px minmax(160px, 1fr) 130px 55px;
+    grid-template-columns: 60px minmax(0, 1fr) 55px;
     gap: 12px;
   }
   .fixture-place {
-    grid-column: 2/4;
+    grid-column: 2;
+    grid-row: 2;
     flex-direction: row;
     gap: 10px;
   }
   .detail-link {
-    grid-column: 4;
+    grid-column: 3;
     grid-row: 1/3;
   }
   .fixture-time {
@@ -1153,39 +1151,41 @@ footer a {
     flex: 1 1 calc(50% - 12px);
   }
   .fixture {
-    grid-template-columns: 48px minmax(110px, 1fr) 78px;
-    padding: 15px 12px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    padding: 14px 12px;
     gap: 10px;
   }
   .fixture-time {
     grid-row: 1;
-    align-self: start;
+    grid-column: 1;
+    flex-direction: row;
+    align-items: baseline;
+    gap: 5px;
   }
-  .fixture-time time {
-    font-size: 0.9rem;
+  .fixture-time time { font-size: .9rem; }
+  .fixture-time > span:not(:empty)::before { content: "– "; }
+  .fixture-contest {
+    grid-column: 1/-1;
+    grid-row: 2;
+    grid-template-columns: minmax(0, 1fr) 76px minmax(0, 1fr);
+    gap: 8px;
   }
-  .fixture-teams {
-    font-size: 0.9rem;
-    overflow-wrap: anywhere;
-  }
-  .fixture-result {
-    text-align: right;
-    align-self: start;
-  }
+  .fixture-side { font-size: .9rem; }
   .fixture-result .status {
-    font-size: 0.65rem;
+    font-size: .65rem;
     line-height: 1.4;
   }
   .fixture-place {
-    grid-column: 1/3;
+    grid-column: 1/-1;
+    grid-row: 3;
     flex-direction: column;
     gap: 2px;
-    font-size: 0.73rem;
+    font-size: .73rem;
   }
   .detail-link {
-    grid-column: 3;
-    grid-row: 2;
-    padding: 9px 0;
+    grid-column: 2;
+    grid-row: 1;
+    padding: 8px 0;
   }
   .date-group h2 {
     font-size: 1rem;

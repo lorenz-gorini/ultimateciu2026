@@ -193,8 +193,9 @@ function renderFreshness() {
 function fixture(match) {
   return `<article class="fixture" data-match="${escape(match.id)}">
     <div class="fixture-time"><time>${escape(match.start || "Da definire")}</time><span>${escape(match.end || "")}</span></div>
-    <div class="fixture-teams">${participant(match.a)}<span class="versus">vs</span>${participant(match.b)}</div>
-    <div class="fixture-result" data-result="${escape(match.id)}">${resultMarkup(match)}</div>
+    <div class="fixture-contest"><div class="fixture-side fixture-side-a">${participant(match.a)}</div>
+      <div class="fixture-result" data-result="${escape(match.id)}">${resultMarkup(match)}</div>
+      <div class="fixture-side fixture-side-b">${participant(match.b)}</div></div>
     <div class="fixture-place"><span>${location(match)}</span><span>${PHASES[match.phase]}${match.pool ? ` · ${escape(data.pools.find((pool) => pool.id === match.pool)?.name || match.pool)}` : ""}</span></div>
     <a class="detail-link" href="#/match/${encodeURIComponent(match.id)}" aria-label="Dettagli ${escape(match.id)}">${escape(match.id)} <span aria-hidden="true">↗</span></a>
   </article>`;
