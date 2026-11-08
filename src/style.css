@@ -1344,3 +1344,20 @@ footer a {
   .goal-credits > span:not(.credit-arrow) { flex: 1 1 90px; }
   .timeline-teams { font-size: .83rem; }
 }
+
+/* Goal details stay outside the scrolling SVG so the card is never clipped. */
+.score-chart { position: relative; }
+.score-goal { cursor: pointer; outline: none; }
+.goal-hit { fill: transparent; pointer-events: all; }
+.score-goal:focus-visible .goal-dot, .score-goal.goal-active .goal-dot { stroke: #193f49; stroke-width: 3; }
+.score-tooltip { position: absolute; z-index: 5; width: 290px; max-width: calc(100% - 16px); padding: 14px 16px; background: #fff; color: #14313c; border: 1px solid var(--line); border-top: 3px solid var(--team-color, #52636b); border-radius: 8px; box-shadow: 0 5px 22px #14313c30; font-size: .85rem; overflow-wrap: anywhere; }
+.tooltip-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.tooltip-heading strong { font-size: 1.35rem; font-variant-numeric: tabular-nums; }
+.tooltip-heading > span { color: var(--muted); font-size: .73rem; }
+.tooltip-team { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--team-color); font-weight: 650; margin: 5px 0 10px; }
+.score-tooltip dl { margin: 0; display: grid; gap: 8px; }
+.score-tooltip dl > div { display: grid; grid-template-columns: 42px minmax(0, 1fr); gap: 8px; }
+.score-tooltip dt { color: var(--muted); font-size: .75rem; }
+.score-tooltip dd { margin: 0; }
+
+.score-crosshair { stroke: #52636b; stroke-width: 1; stroke-dasharray: 4 3; pointer-events: none; }

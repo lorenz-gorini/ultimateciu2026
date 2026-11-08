@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { parseReport, requestReport } from "../src/reports.js";
 import { chartSegments, gameTimeline, reportWarnings, scoreCharts, scoreSequence } from "../src/match-timeline.js";
+import { lastGoalIndex } from "../src/chart-tooltip.js";
 import { planReportChecks } from "../src/report-refresh.js";
 
 // SYNTHETIC goal data only; never added to public inputs or organizer sheets.
@@ -109,4 +110,47 @@ test("network query includes the explicit break column and excludes unused gende
   assert.equal(queries[1].get("range"), "C12:I200");
   assert.equal(queries[1].get("tq"), "select C,D,E,F,G,I");
   assert.equal(entry.report.goals[0].isBreak, true);
+});
+
+
+test("goal tooltips expose actual credits, score, minute and source break with safe accessible markup", () => {
+  const rows = body();
+  rows[1][2] = '23 - Assist <B> & C';
+  const markup = scoreCharts(match, teams, { report: parse(rows) });
+  assert.equal((markup.match(/role="tooltip"/g) || []).length, 5);
+  assert.equal((markup.match(/data-score-target=/g) || []).length, 5);
+  assert.match(markup, /role="button" tabindex="0"[^>]*aria-describedby="goal-tooltip-X_1-1"/);
+  const first = markup.split('id="goal-tooltip-X_1-1"')[1].split('id="goal-tooltip-X_1-2"')[0];
+  assert.match(first, /0–1/);
+  assert.match(first, /Meta 1 · 2′/);
+  assert.match(first, /Assist &lt;B&gt; &amp; C/);
+  assert.match(first, /#0<\/span> Player B/);
+  assert.match(first, /BREAK/);
+  const missing = markup.split('id="goal-tooltip-X_1-3"')[1].split('id="goal-tooltip-X_1-4"')[0];
+  assert.match(missing, /Minuto non indicato/);
+  assert.match(missing, /Non indicato/);
+  assert.doesNotMatch(missing, /break-badge/);
+  assert.doesNotMatch(markup, /Assist <B>/);
+});
+
+test("time-axis tooltips include only goals with source minutes, including zero and shared minutes", () => {
+  const rows = body();
+  rows[1][0] = "0 '";
+  rows[2][0] = "0 '";
+  const markup = scoreCharts(match, teams, { report: parse(rows) }, "time");
+  assert.equal((markup.match(/role="tooltip"/g) || []).length, 4);
+  assert.match(markup, /id="goal-tooltip-X_1-1"/);
+  assert.match(markup, /id="goal-tooltip-X_1-2"/);
+  assert.doesNotMatch(markup, /id="goal-tooltip-X_1-3"/);
+});
+
+
+test("chart-wide cursor selects the last goal, not a future or nearest goal", () => {
+  const positions = [0, 4, 8, 8, 15];
+  assert.equal(lastGoalIndex(positions, 0), 0);
+  assert.equal(lastGoalIndex(positions, 3.9), 0);
+  assert.equal(lastGoalIndex(positions, 7.9), 1);
+  assert.equal(lastGoalIndex(positions, 8), 3);
+  assert.equal(lastGoalIndex(positions, 14.9), 3);
+  assert.equal(lastGoalIndex(positions, 15), 4);
 });

@@ -1,5 +1,6 @@
 import "./style.css";
 import { escapeHtml as escape } from "./html.js";
+import { bindScoreTooltips } from "./chart-tooltip.js";
 import { MATCH_TABS, gameTimeline, scoreCharts, scoreSequence } from "./match-timeline.js";
 import { REPORT_INTERVAL, inReportRecoveryWindow, reportContext, reportView, requestReport } from "./reports.js";
 import { requestMatchPlayers } from "./match-players.js";
@@ -27,6 +28,7 @@ import {
 } from "./preferences.js";
 
 const content = document.querySelector("#content");
+const scoreTooltips = bindScoreTooltips(content);
 const freshness = document.querySelector("#freshness-controls");
 const refreshStatus = document.querySelector("#refresh-status");
 const filters = { search: "", teamIds: [], date: "", phase: "", status: "" };
@@ -274,6 +276,7 @@ function renderMatchAnalysis(match) {
   ]) {
     const node = document.getElementById(id);
     if (node && node.dataset.renderedMarkup !== markup) {
+      if (id === "match-charts") scoreTooltips.close();
       node.innerHTML = markup;
       node.dataset.renderedMarkup = markup;
     }
@@ -684,6 +687,7 @@ function unknown() {
 }
 
 function render({ navigation = false } = {}) {
+  scoreTooltips.close();
   const route = locationHash();
   const active =
     route === "/" || route.startsWith("/match/")

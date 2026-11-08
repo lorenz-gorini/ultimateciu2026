@@ -67,11 +67,20 @@ function chart(report, names, matchId, axis) {
     `<text x="${x(value)}" y="${height - bottom + 20}" text-anchor="middle">${value}${axis === "time" ? "′" : ""}</text>`).join("");
   const paths = ["a", "b"].map((side) => chartSegments(report, side, axis).map((segment) =>
     `<path class="team-${side} score-path" d="${segment.map((point, index) => `${index ? "L" : "M"}${x(point.x)},${y(point.y)}`).join(" ")}"/>`).join("")).join("");
-  const points = report.goals.filter((goal) => axis !== "time" || goal.minute !== null).map((goal) => {
+  const visibleGoals = report.goals.filter((goal) => axis !== "time" || goal.minute !== null);
+  const points = visibleGoals.map((goal) => {
     const label = `Meta ${goal.number}: ${names[goal.side]}, ${scoreText(goal.score)}, ${minute(goal)}${goal.isBreak ? ", break segnalato" : ""}`;
-    return `<g class="team-${goal.side}"><title>${escape(label)}</title><circle class="goal-dot ${goal.isBreak ? 'break-dot' : ''}" cx="${x(axis === "time" ? goal.minute : goal.number)}" cy="${y(goal.score[goal.side])}" r="${goal.isBreak ? 5 : 3}"/></g>`;
+    const tooltipId = `goal-tooltip-${matchId}-${goal.number}`;
+    return `<g class="team-${goal.side} score-goal" data-score-target="${escape(tooltipId)}" data-score-x="${x(axis === "time" ? goal.minute : goal.number)}" role="button" tabindex="0" aria-label="${escape(label)}" aria-describedby="${escape(tooltipId)}" transform="translate(${x(axis === "time" ? goal.minute : goal.number)},${y(goal.score[goal.side])})"><circle class="goal-hit" r="18"/><circle class="goal-dot ${goal.isBreak ? 'break-dot' : ''}" r="${goal.isBreak ? 5 : 3}"/></g>`;
   }).join("");
-  return `<div class="chart-scroll" tabindex="0" role="region" aria-label="Grafico del punteggio"><svg viewBox="0 0 ${width} ${height}" role="img" aria-labelledby="progress-title-${escape(matchId)}"><title id="progress-title-${escape(matchId)}">Punteggio di ${escape(names.a)} e ${escape(names.b)} per ${axis === "time" ? 'minuto riportato' : 'numero di meta'}. I break sono cerchiati.</title>${grid}${labels}${paths}${points}<text x="${width / 2}" y="${height - 2}" text-anchor="middle">${axis === "time" ? "Minuto indicato nel report" : "Numero di meta"}</text></svg></div>`;
+  return `<div class="score-chart" data-score-chart><div class="chart-scroll" tabindex="0" role="region" aria-label="Grafico del punteggio"><svg data-score-svg viewBox="0 0 ${width} ${height}" role="group" aria-labelledby="progress-title-${escape(matchId)}"><title id="progress-title-${escape(matchId)}">Punteggio di ${escape(names.a)} e ${escape(names.b)} per ${axis === "time" ? 'minuto riportato' : 'numero di meta'}. I break sono cerchiati.</title><rect data-score-bounds x="${left}" y="${top}" width="${width - left - right}" height="${height - top - bottom}" fill="transparent"/>${grid}${labels}${paths}<line class="score-crosshair" data-score-crosshair y1="${top}" y2="${height - bottom}" hidden/><g data-score-origin data-score-target="goal-tooltip-${escape(matchId)}-start" data-score-x="${left}" transform="translate(${left},${y(0)})" aria-hidden="true"><circle r=".1" fill="transparent"/></g>${points}<text x="${width / 2}" y="${height - 2}" text-anchor="middle">${axis === "time" ? "Minuto indicato nel report" : "Numero di meta"}</text></svg></div><div class="score-tooltip" id="goal-tooltip-${escape(matchId)}-start" role="tooltip" hidden><div class="tooltip-heading"><strong>0–0</strong></div><p>Nessuna meta registrata prima di questa posizione.</p></div>${visibleGoals.map((goal) => goalTooltip(goal, names, matchId)).join("")}</div>`;
+}
+
+function goalTooltip(goal, names, matchId) {
+  return `<div class="score-tooltip team-${goal.side}" id="goal-tooltip-${escape(matchId)}-${goal.number}" role="tooltip" hidden>
+    <div class="tooltip-heading"><strong>${scoreText(goal.score)}</strong><span>Meta ${goal.number} · ${minute(goal)}</span></div>
+    <p class="tooltip-team">${escape(names[goal.side])} ${breakBadge(goal)}</p>
+    <dl><div><dt>Assist</dt><dd>${credit(goal.assist, "Non indicato")}</dd></div><div><dt>Meta</dt><dd>${credit(goal.scorer, "Non indicata")}</dd></div></dl></div>`;
 }
 
 function differenceChart(report, names) {
@@ -99,7 +108,7 @@ export function scoreCharts(match, teams, entry, axis = "point") {
     `<button type="button" data-chart-axis="${value}" aria-pressed="${axis === value}" ${value === "time" && !timeAvailable ? "disabled" : ""}>${label}</button>`).join("")}</div></div>
     <p class="chart-key">${["a", "b"].map((side) => `<span class="team-${side}"><span class="team-dot" aria-hidden="true"></span>${escape(names[side])} <small>Break segnalati: ${report.goals.filter((goal) => goal.side === side && goal.isBreak).length}</small></span>`).join("")}</p>
     ${chart(report, names, match.id, axis)}
-    <p class="muted chart-note">${axis === "time" ? `${timed}/${report.goals.length} mete hanno un minuto registrato. Le interruzioni della linea indicano tempi mancanti; non vengono stimati.` : "Ogni passo corrisponde a una meta registrata; i cerchi più grandi indicano i break."}${!report.timeOrdered ? " I tempi del report non sono in ordine: il grafico per minuto non è disponibile." : ""}${report.goals.some((goal) => goal.timeUnrecognized) ? " Alcuni tempi non sono interpretabili." : ""}</p>
+    <p class="muted chart-note">${axis === "time" ? `${timed}/${report.goals.length} mete hanno un minuto registrato. Le interruzioni della linea indicano tempi mancanti; non vengono stimati.` : "Ogni passo corrisponde a una meta registrata; i cerchi più grandi indicano i break."} Passa sul grafico o toccalo: la linea indica la posizione e il riquadro mostra ${axis === "time" ? "l’ultima meta con minuto disponibile" : "l’ultima meta registrata"}, con minuto, assist e marcatore.${!report.timeOrdered ? " I tempi del report non sono in ordine: il grafico per minuto non è disponibile." : ""}${report.goals.some((goal) => goal.timeUnrecognized) ? " Alcuni tempi non sono interpretabili." : ""}</p>
     <h3>Vantaggio dopo ogni meta</h3><p class="muted chart-note">Sopra lo zero: ${escape(names.a)}. Sotto lo zero: ${escape(names.b)}.</p>${differenceChart(report, names)}`;
 }
 
