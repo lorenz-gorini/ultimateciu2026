@@ -195,6 +195,9 @@
           "resultState": {
             "enum": ["none", "partial", "complete"]
           },
+          "forfeit": {
+            "type": "boolean"
+          },
           "reportUrl": {
             "type": ["string", "null"],
             "pattern": "^https://docs\\.google\\.com/spreadsheets/d/[A-Za-z0-9_-]+/edit(?:[?#][^\\s]*)?$"

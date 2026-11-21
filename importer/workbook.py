@@ -246,8 +246,14 @@ def parse_workbook(payload: bytes, fetched_at: str, source_mode: str = "live", *
     matches, carryovers, carryover_references = [], [], []
     for row in range(5, cached[names[1]].max_row + 1):
         match_id, marker = games.get(row, 9), games.get(row, 17)
-        require(marker in (None, "report", "ereditata"), f"Partite!Q{row}: unknown report/carry-over marker")
+        require(marker in (None, "report", "ereditata", "tavolino"), f"Partite!Q{row}: unknown report/carry-over marker")
         report_url = None
+        if marker == "tavolino":
+            require(match_id is not None, f"Partite!Q{row}: awarded result without match ID")
+            require(games.cached.cell(row, 17).hyperlink is None,
+                    f"Partite!Q{row}: awarded result unexpectedly has a hyperlink")
+            require(all(value is not None for value in score_at(row).values()),
+                    f"Partite!Q{row}: awarded result needs both final scores")
         if marker == "report":
             require(match_id is not None, f"Partite!Q{row}: report without match ID")
             report_url = games.hyperlink(row, 17)
@@ -288,7 +294,8 @@ def parse_workbook(payload: bytes, fetched_at: str, source_mode: str = "live", *
                         "a": participant(games.get(row, 10), games.get(row, 11), f"J{row}"),
                         "b": participant(games.get(row, 16), games.get(row, 15), f"P{row}"),
                         "score": score, "resultState": state, "reportUrl": report_url,
-                        "provenance": provenance(names[1], f"B{row}:U{row}")})
+                        "provenance": provenance(names[1], f"B{row}:U{row}"),
+                        **({"forfeit": True} if marker == "tavolino" else {})})
 
     original_matches = {match["id"]: match for match in matches if match["phase"] == "first"}
     for carry, match_id, row in carryover_references:
@@ -338,6 +345,8 @@ def parse_workbook(payload: bytes, fetched_at: str, source_mode: str = "live", *
                     f"SOTG row {row}: evaluation or link without match ID")
             ignored_sotg_rows += int(evaluating is not None or evaluated is not None)
             continue
+        require(spirit.get(row, 2) is not None or spirit.get(row, 6) is None,
+                f"SOTG row {row}: submission without date")
         categories = [numeric(spirit.get(row, col), f"SOTG row {row} category", integer=True) for col in range(7, 12)]
         total = numeric(spirit.get(row, 12), f"SOTG row {row} total")
         comment = string(spirit.get(row, 13), f"SOTG row {row} comment", optional=True)
@@ -423,6 +432,8 @@ def validate_data(data: dict) -> None:
         score = match["score"]
         state = "none" if score["a"] is None and score["b"] is None else "complete" if score["a"] is not None and score["b"] is not None else "partial"
         require(match["resultState"] == state, f"{match['id']}: inconsistent result state")
+        require(not match.get("forfeit", False) or (state == "complete" and match["reportUrl"] is None),
+                f"{match['id']}: awarded result requires final scores and no report")
         require(state != "complete" or (match["a"]["teamId"] is not None and match["b"]["teamId"] is not None), f"{match['id']}: completed result without resolved teams")
         require(match["a"]["teamId"] is None or match["a"]["teamId"] != match["b"]["teamId"], f"{match['id']}: team plays itself")
     sides = [side for match in data["matches"] for side in (match["a"], match["b"])]
@@ -434,7 +445,12 @@ def validate_data(data: dict) -> None:
     for evaluation in data["sotg"]:
         require(evaluation["matchId"] in matches, "SOTG references unknown match ID")
         match = matches[evaluation["matchId"]]
-        require(evaluation["date"] == match["date"], "SOTG date disagrees with match")
+        empty_placeholder = (evaluation.get("formUrl") is None
+                             and all(value is None for value in [*evaluation["categories"],
+                                                                evaluation["total"], evaluation["comment"]]))
+        require(evaluation["date"] == match["date"]
+                or (evaluation["date"] is None and match.get("forfeit", False) and empty_placeholder),
+                "SOTG date disagrees with match")
         evaluating, evaluated = evaluation["evaluatingTeamId"], evaluation["evaluatedTeamId"]
         expected_form_match = form_team_match(evaluation.get("formUrl"), evaluation["matchId"],
                                              names.get(evaluating), names.get(evaluated))

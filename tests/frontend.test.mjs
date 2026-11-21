@@ -26,8 +26,10 @@ data.fetchedAt = "2026-10-13T00:00:00Z";
 for (const match of data.matches) {
   match.score = { a: null, b: null };
   match.resultState = "none";
+  delete match.forfeit;
 }
 for (const evaluation of data.sotg) {
+  evaluation.date = data.matches.find((match) => match.id === evaluation.matchId).date;
   evaluation.categories = [null, null, null, null, null];
   evaluation.total = null;
   evaluation.comment = null;
@@ -496,7 +498,11 @@ test("SYNTHETIC form links keep both directions, deduplicate unresolved links an
   first[0].formTeamsMatch = false;
   assert.equal(evaluationFormOptions(validateData(next), "X_1")[0].warning, true);
   const final = next.sotg.filter((evaluation) => evaluation.matchId === "F1");
-  for (const evaluation of final) evaluation.formUrl = url("F1", "", "");
+  for (const evaluation of final) {
+    evaluation.evaluatingTeamId = null;
+    evaluation.evaluatedTeamId = null;
+    evaluation.formUrl = url("F1", "", "");
+  }
   assert.equal(evaluationFormOptions(validateData(next), "F1").length, 1);
   assert.equal(evaluationFormOptions(next, "missing").length, 0);
   for (const target of ["javascript:alert(1)", "https://example.com/viewform", url("X_2", "", "")]) {
@@ -568,4 +574,29 @@ test("SYNTHETIC cross-division refresh rejects wrong data and keeps only that di
   const failed = await requestData("/data-mixed-b.json", publishedB,
     async () => {throw new Error("synthetic network failure");}, "mixed-b");
   assert.equal(failed.data, publishedB);
+});
+
+test("SYNTHETIC forfeits require a final score and permit only an empty undated SOTG row", () => {
+  const sample = clone();
+  const match = sample.matches.find((item) => item.a.teamId && item.b.teamId && item.date);
+  Object.assign(match, { forfeit: true, resultState: "complete", score: { a: 15, b: 0 }, reportUrl: null });
+  sample.sotg = sample.sotg.filter((entry) => entry.matchId !== match.id);
+  const row = { matchId: match.id, date: null, evaluatingTeamId: match.a.teamId,
+    evaluatedTeamId: match.b.teamId, categories: [null, null, null, null, null],
+    total: null, comment: null, formUrl: null, formTeamsMatch: null,
+    provenance: { sheet: "SYNTHETIC", range: "A1" } };
+  sample.sotg.push(row);
+  assert.doesNotThrow(() => validateData(sample));
+  const reject = (change) => {
+    const invalid = structuredClone(sample);
+    change(invalid, invalid.matches.find((item) => item.id === match.id), invalid.sotg.at(-1));
+    assert.throws(() => validateData(invalid));
+  };
+  reject((_, m) => { m.score.b = null; m.resultState = "partial"; });
+  reject((_, m) => { m.reportUrl = "https://docs.google.com/spreadsheets/d/SYNTHETIC/edit"; });
+  reject((_, m) => { m.forfeit = false; });
+  reject((_, __, e) => { e.categories[0] = 0; });
+  reject((_, __, e) => { e.comment = "present"; });
+  reject((_, __, e) => { e.total = 0; });
+  reject((_, __, e) => { e.formUrl = "https://docs.google.com/forms/d/e/SYNTHETIC/viewform?x=1"; });
 });

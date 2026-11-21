@@ -140,6 +140,64 @@ class ImporterTests(unittest.TestCase):
                 parse_workbook(buffer.getvalue(), TEST_TIME)
         book.close()
 
+    def test_synthetic_awarded_fixture_retains_final_and_has_no_report(self) -> None:
+        data = parse_workbook(synthetic_workbook({"Partite": {"Q5": "tavolino", "L5": 15, "N5": 0}}), TEST_TIME)
+        match = data["matches"][0]
+        self.assertEqual(len(data["matches"]), 56)
+        self.assertTrue(match["forfeit"])
+        self.assertEqual(match["score"], {"a": 15, "b": 0})
+        self.assertEqual(match["resultState"], "complete")
+        self.assertIsNone(match["reportUrl"])
+        self.assertNotIn("forfeit", data["matches"][1])
+        for changes in ({"Q5": "tavolino"}, {"Q5": "tavolino", "L5": 15},
+                        {"Q5": "tavolino", "I5": None, "L5": 15, "N5": 0}):
+            with self.subTest(changes=changes), self.assertRaises(ImportFailure):
+                parse_workbook(synthetic_workbook({"Partite": changes}), TEST_TIME)
+        book = openpyxl.load_workbook(io.BytesIO(self.payload))
+        book["Partite"]["Q5"] = "tavolino"
+        book["Partite"]["Q5"].hyperlink = "https://docs.google.com/spreadsheets/d/SYNTHETIC/edit"
+        book["Partite"]["L5"], book["Partite"]["N5"] = 15, 0
+        buffer = io.BytesIO()
+        book.save(buffer)
+        book.close()
+        with self.assertRaisesRegex(ImportFailure, "unexpectedly has a hyperlink"):
+            parse_workbook(buffer.getvalue(), TEST_TIME)
+        invalid = copy.deepcopy(data)
+        invalid["matches"][0]["reportUrl"] = "https://docs.google.com/spreadsheets/d/SYNTHETIC/edit"
+        with self.assertRaisesRegex(ImportFailure, "awarded result"):
+            validate_data(invalid)
+
+    def test_synthetic_only_awarded_empty_sotg_placeholder_can_lack_date(self) -> None:
+        book = openpyxl.load_workbook(io.BytesIO(self.payload))
+        games, spirit = book["Partite"], book["Valutazioni SOTG"]
+        games["Q5"], games["L5"], games["N5"] = "tavolino", 15, 0
+        # SYNTHETIC replica of the two name-only, match-linked awarded rows.
+        spirit["B2"] = None
+        for row in (2, 3):
+            spirit[f"E{row}"].hyperlink = None
+            spirit[f"E{row}"] = None
+        buffer = io.BytesIO()
+        book.save(buffer)
+        data = parse_workbook(buffer.getvalue(), TEST_TIME)
+        self.assertTrue(all(evaluation["date"] is None for evaluation in data["sotg"][:2]))
+        self.assertEqual(data["sotg"][0]["provenance"], {"sheet": "Valutazioni SOTG", "range": "A2:M2"})
+        for field, value in (("date", "2026-10-26"), ("total", 0), ("comment", "SYNTHETIC"),
+                             ("formUrl", self.data["sotg"][0]["formUrl"])):
+            invalid = copy.deepcopy(data)
+            invalid["sotg"][0][field] = value
+            with self.subTest(field=field), self.assertRaises(ImportFailure):
+                validate_data(invalid)
+        invalid = copy.deepcopy(data)
+        del invalid["matches"][0]["forfeit"]
+        with self.assertRaisesRegex(ImportFailure, "SOTG date"):
+            validate_data(invalid)
+        spirit["F2"] = "✔"
+        buffer = io.BytesIO()
+        book.save(buffer)
+        book.close()
+        with self.assertRaisesRegex(ImportFailure, "submission without date"):
+            parse_workbook(buffer.getvalue(), TEST_TIME)
+
     def test_synthetic_unnamed_player_totals_are_preserved(self) -> None:
         data = parse_workbook(synthetic_workbook({"Statistiche": {
             "A3": "BFD Redshot", "N3": 3, "O3": 0, "P3": 3}}), TEST_TIME)

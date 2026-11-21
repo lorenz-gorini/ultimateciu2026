@@ -8,6 +8,7 @@ const scoreText = (score) => `${score.a}–${score.b}`;
 const breakBadge = (goal) => goal.isBreak ? '<span class="break-badge">BREAK</span>' : "";
 
 function waiting(match, entry) {
+  if (match.forfeit) return '<div class="empty">Partita assegnata a tavolino. La fonte riporta solo il risultato.</div>';
   if (!match.reportUrl) return '<div class="empty">Foglio di gara non ancora collegato.</div>';
   if (entry?.error && !entry.report) return '<div class="empty">Andamento non disponibile. Riprova con Aggiorna o apri il foglio di gara.</div>';
   return `<div class="empty">${entry?.report ? "Nessuna meta registrata nel report." : "Caricamento delle mete dal foglio di gara…"}</div>`;

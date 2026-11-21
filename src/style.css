@@ -1252,7 +1252,7 @@ footer a {
 .match-overview .match-summary { padding: 4px 0 16px; margin: 0; border: 0; box-shadow: none; gap: 26px; }
 .match-meta { flex: 1; }
 .match-meta p { margin: 4px 0; }
-.match-actions { margin-left: auto; }
+.match-actions { margin-left: auto; display: flex; flex-wrap: wrap; align-items: flex-start; gap: .5rem; }
 .match-actions:empty { display: none; }
 .match-actions .evaluation-forms { margin: 0; padding: 0; border: 0; }
 .score-sequence { border-top: 1px solid var(--line); }

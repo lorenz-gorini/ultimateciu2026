@@ -77,6 +77,8 @@ export function validateData(data, expectedDivision = null) {
         ? "complete"
         : "partial";
     invariant(match.resultState === expected, "Stato risultato incoerente");
+    invariant(!match.forfeit || (expected === "complete" && match.reportUrl == null),
+      "Risultato a tavolino incoerente");
     invariant(
       expected !== "complete" ||
         (match.a.teamId !== null && match.b.teamId !== null),
@@ -91,7 +93,9 @@ export function validateData(data, expectedDivision = null) {
   for (const evaluation of data.sotg) {
     const match = matches.get(evaluation.matchId);
     invariant(
-      match && match.date === evaluation.date,
+      match && (match.date === evaluation.date ||
+        (evaluation.date === null && match.forfeit && evaluation.formUrl == null &&
+          [...evaluation.categories, evaluation.total, evaluation.comment].every((value) => value === null))),
       "Partita/data SOTG sconosciuta",
     );
     const { evaluatingTeamId: from, evaluatedTeamId: to } = evaluation;

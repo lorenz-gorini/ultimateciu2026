@@ -209,14 +209,15 @@ function resultMarkup(match, detail = false) {
     ? `<small class="report-checked">Report: ${escape(timestamp(entry.checkedAt))}</small>` : "";
   const value = `<strong class="${detail ? "big-score" : "score"}">${score(match)}</strong>`;
   const result = detail ? value : `<a class="score-link" href="#/match/${encodeURIComponent(match.id)}">${value}<span class="visually-hidden"> · Apri i dettagli di ${escape(matchLabel(match))}</span></a>`;
-  return `${result}<span class="status ${state}">${STATES[state]}</span>${checked}`;
+  return `${result}<span class="status ${state}">${match.forfeit ? "Risultato a tavolino" : STATES[state]}</span>${checked}`;
 }
 
 function reportMarkup(match) {
-  if (!match.reportUrl) return '<p class="muted">Report non ancora disponibile nella fonte.</p>';
+  if (!match.reportUrl) return match.forfeit
+    ? '<p class="muted">Partita assegnata a tavolino. La fonte pubblica il risultato senza un foglio di gara.</p>'
+    : '<p class="muted">Report non ancora disponibile nella fonte.</p>';
   const entry = currentReport(match);
-  return `<a class="button-link secondary" href="${escape(match.reportUrl)}" target="_blank" rel="noopener noreferrer">Foglio di gara ↗</a>
-    <p class="muted">${match.resultState === "complete" ? "Risultato finale dalle colonne L–N di Partite; il report non lo sostituisce." : "Parziale provvisorio dal Foglio di gara (LIVE). Il risultato è definitivo solo quando compare in Partite."} Controllo automatico ogni 60 secondi per gli incontri già iniziati oggi o entro 2 ore dall’inizio previsto, fino a fine partita.</p>
+  return `<p class="muted">${match.resultState === "complete" ? "Risultato finale dalle colonne L–N di Partite; il report non lo sostituisce." : "Parziale provvisorio dal Foglio di gara (LIVE). Il risultato è definitivo solo quando compare in Partite."} Controllo automatico ogni 60 secondi per gli incontri già iniziati oggi o entro 2 ore dall’inizio previsto, fino a fine partita.</p>
     <p class="muted">${entry?.checkedAt ? `Punteggio nel report verificato: ${escape(timestamp(entry.checkedAt))}.` : entry?.error ? "Nessuna lettura valida del punteggio nel report." : match.resultState === "complete" || !inReportRecoveryWindow(match) ? "Controllo automatico del punteggio non attivo per questa partita. Puoi richiederlo con Aggiorna." : "Controllo del punteggio nel report…"}${entry?.report && !entry.report.start ? " Il report non indica ancora l’inizio della partita." : ""}</p>
     ${entry?.error ? `<p class="form-warning" role="status">Verifica report non riuscita: ${escape(entry.error)}. ${match.resultState === "complete" ? "Il risultato finale del calendario resta valido." : entry.report?.score ? "Ultimo parziale conservato e indicato come non live." : "Consulta il foglio originale."}</p>` : ""}`;
 }
@@ -565,6 +566,7 @@ function matchRosterTable(players, caption) {
 
 function matchPlayersMarkup(match) {
   const heading = "<h2>Giocatori della partita</h2>";
+  if (match.forfeit) return `${heading}${empty("Partita assegnata a tavolino, senza statistiche individuali.")}`;
   if (!match.reportUrl) return `${heading}${empty("Roster e statistiche non ancora collegati nella fonte.")}`;
   const entry = currentPlayers(match);
   const status = entry?.checkedAt ? `Roster e statistiche verificati: ${escape(timestamp(entry.checkedAt))}.`
@@ -646,7 +648,7 @@ function matchPage(id) {
   content.innerHTML = `<a class="back" href="#/">← Torna alle partite</a>
     <section class="match-overview"><p class="eyebrow">${escape(id)} · ${PHASES[match.phase]}</p>
       <h1 class="match-heading"><span class="team-a">${participant(match.a)}</span><span>vs</span><span class="team-b">${participant(match.b)}</span></h1>
-      <div class="match-summary"><div class="match-result" data-result="${escape(id)}" data-detail="true" aria-live="polite">${resultMarkup(match, true)}</div><div class="match-meta"><p>${escape(formatDate(match.date))} · ${escape(match.start || "Orario da definire")}${match.end ? `–${escape(match.end)}` : ""}</p><p>${location(match)}</p></div><div class="match-actions">${evaluationFormControl(forms)}</div></div>
+      <div class="match-summary"><div class="match-result" data-result="${escape(id)}" data-detail="true" aria-live="polite">${resultMarkup(match, true)}</div><div class="match-meta"><p>${escape(formatDate(match.date))} · ${escape(match.start || "Orario da definire")}${match.end ? `–${escape(match.end)}` : ""}</p><p>${location(match)}</p></div><div class="match-actions">${evaluationFormControl(forms)}${match.reportUrl ? `<a class="button-link secondary" href="${escape(match.reportUrl)}" target="_blank" rel="noopener noreferrer">Foglio di gara ↗</a>` : ""}</div></div>
       ${forms.some((form) => form.warning) ? '<p class="form-warning">Il link Valuta originale precompila squadre diverse. Controlla i campi squadra nel modulo prima di inviarlo.</p>' : ""}
       ${[match.a, match.b].filter((side) => !side.teamId).map((side) => `<p class="muted">${escape(side.slot)}: ${escape(slotMeaning(side.slot))}. La fonte non ha ancora indicato la squadra.</p>`).join("")}
       <div id="match-sequence">${scoreSequence(match, data.teams, currentReport(match))}</div>
@@ -659,7 +661,7 @@ function matchPage(id) {
         spirit,
       }[key]}</section>`).join("")}
     </section>
-    <details class="match-source-details"><summary>Fonte e aggiornamenti</summary><div id="match-report" data-match="${escape(id)}" aria-label="Aggiornamento report">${reportMarkup(match)}</div><p class="muted">Fonte: ${escape(match.provenance.sheet)}!${escape(match.provenance.range)} · <a href="${data.sourceUrl}?gid=1898128397&range=${encodeURIComponent(match.provenance.range)}" target="_blank" rel="noopener noreferrer">Vedi nel foglio ↗</a></p></details>`;
+    <details class="match-source-details"><summary>Fonte e aggiornamenti</summary><div id="match-report" data-match="${escape(id)}" aria-label="Aggiornamento report">${reportMarkup(match)}</div><p class="muted">Fonte: ${escape(match.provenance.sheet)}!${escape(match.provenance.range)} · <a href="${data.sourceUrl}?gid=1898128397&range=${encodeURIComponent(match.provenance.range)}" target="_blank" rel="noopener noreferrer">Riga nel calendario ↗</a></p></details>`;
 }
 
 function poolTable(pool) {
