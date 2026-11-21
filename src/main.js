@@ -1,6 +1,6 @@
 import "./style.css";
 import "./final-bracket.css";
-import { finalBracket } from "./final-bracket.js";
+import { bracketParticipant, bracketWinner, finalBracket } from "./final-bracket.js";
 import { escapeHtml as escape } from "./html.js";
 import { bindScoreTooltips } from "./chart-tooltip.js";
 import { MATCH_TABS, gameTimeline, scoreCharts, scoreSequence } from "./match-timeline.js";
@@ -216,14 +216,22 @@ function resultMarkup(match, detail = false) {
 
 function bracketScoreMarkup(match) {
   const { score: { a, b }, state } = resultView(match);
-  const confirmed = state === "complete";
-  const sideA = confirmed && a > b ? `<strong>${shown(a)}</strong>` : shown(a);
-  const sideB = confirmed && b > a ? `<strong>${shown(b)}</strong>` : shown(b);
-  const text = a === null && b === null ? "–" : `${sideA} – ${sideB}`;
+  const winner = bracketWinner(match);
+  const scorePart = (side, points) => {
+    const tag = winner === side ? "strong" : "span";
+    return `<${tag} class="bracket-score-${side}">${shown(points)}</${tag}>`;
+  };
+  const pending = a === null && b === null;
+  const text = pending ? "–" : `${scorePart("a", a)} – ${scorePart("b", b)}`;
   const qualifier = { live: "LIVE", provisional: "Provv.", "report-stale": "Ultimo parziale" }[state];
   const status = match.forfeit ? "Risultato a tavolino" : STATES[state];
-  const accessibleScore = a === null && b === null ? "" : `${shown(a)} a ${shown(b)}. `;
-  return `<a class="bracket-score-link" href="#/match/${encodeURIComponent(match.id)}" aria-label="Apri ${escape(matchLabel(match))}. ${accessibleScore}${escape(status)}">${text}${qualifier ? ` <small>${qualifier}</small>` : ""}</a>`;
+  const nameAndScore = (side, points) => {
+    const participant = bracketParticipant(side, data.matches);
+    const name = team(participant.teamId)?.name || participant.slot;
+    return pending ? name : `${name} ${points ?? "—"}`;
+  };
+  const label = `Apri partita. ${nameAndScore(match.a, a)}, ${nameAndScore(match.b, b)}. ${status}`;
+  return `<a class="bracket-score-link" href="#/match/${encodeURIComponent(match.id)}" aria-label="${escape(label)}" title="${escape(label)}">${text}${qualifier ? ` <small>${qualifier}</small>` : ""}</a>`;
 }
 
 function reportMarkup(match) {

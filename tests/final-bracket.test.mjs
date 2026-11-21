@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { bracketEdges, bracketParticipant, finalBracket } from "../src/final-bracket.js";
+import { bracketConnection, bracketEdges, bracketParticipant, bracketWinner, finalBracket } from "../src/final-bracket.js";
 
 const data = JSON.parse(readFileSync("public/data.json", "utf8"));
 const finals = data.matches.filter((match) => match.phase === "finals");
@@ -146,4 +146,56 @@ test("entry and match connectors meet participant underlines and direct access h
   const entry = finalBracket(synthetic, result).split('data-bracket-entry="F2:a"')[1].split('</div></div>')[0];
   assert.equal((entry.match(/Perdente S1/g) || []).length, 1);
   assert.ok(entry.includes('Squadra da definire'));
+});
+
+
+test("SYNTHETIC junction feeders terminate together and outgoing wires start at the score", () => {
+  const geometry = { columns: [12, 250, 400], toJunction: true };
+  assert.equal(bracketConnection([0, 70], [1, 86], "a", "L", true, geometry), "M 202 102 H 242 V 142 H 250");
+  assert.equal(bracketConnection([0, 150], [1, 86], "b", "L", true, geometry), "M 202 182 H 242 V 142 H 250");
+  assert.equal(bracketConnection([1, 86], [2, 196], "a", "W", false, { ...geometry, toJunction: false, fromJunction: true }), "M 330 142 H 370 V 228 H 400");
+  const markup = finalBracket(data, result);
+  for (const id of ["F2", "F3", "F6", "S3", "S4"]) {
+    const article = markup.split(`id="bracket-${id}"`)[1].split("</article>")[0];
+    assert.ok(!article.includes('class="bracket-team'), id);
+    assert.equal((article.match(/data-bracket-result=/g) || []).length, 1, id);
+  }
+  for (const id of ["F2", "F3", "F6"]) {
+    const lane = markup.split(`data-bracket-entry="${id}:a"`)[0].split('class="bracket-diagram"').at(-1);
+    assert.ok(lane.includes('width:342px;'), id);
+    for (const side of ["a", "b"]) {
+      const edge = bracketEdges(finals).find((edge) => edge.to === id && edge.side === side);
+      const connector = markup.split(`data-bracket-edge="${edge.from}:${id}:${side}:L"`)[1].split("</g>")[0];
+      assert.ok(connector.includes("V 142 H 250"));
+    }
+  }
+  const ninth = markup.split('<h4>Per il 9°–10° posto</h4>')[1].split('<ul class="bracket-accessible-paths')[0];
+  assert.ok(ninth.includes('left:12px;width:190px">Semifinali</h5>'));
+  assert.ok(!ninth.includes('left:250px;width:190px">Semifinali'));
+  assert.ok(ninth.includes('id="bracket-F5"'));
+  assert.ok(!ninth.includes('F5 · 9°–10° posto'));
+});
+
+test("SYNTHETIC official winner weight and side colors follow the destination side", () => {
+  const synthetic = structuredClone(data);
+  const match = synthetic.matches.find((match) => match.id === "F2");
+  Object.assign(match, { score: { a: 14, b: 15 }, resultState: "complete" });
+  assert.equal(bracketWinner(match), "b");
+  let markup = finalBracket(synthetic, result);
+  const row = (html, side) => html.split(`data-bracket-entry="F2:${side}"`)[1].split('</div></div>')[0];
+  assert.ok(row(markup, "b").includes('bracket-team-b bracket-team-winner'));
+  assert.ok(!row(markup, "a").includes('bracket-team-winner'));
+  for (const change of [{ resultState: "partial" }, { resultState: "none" }, { score: { a: 15, b: 15 } }, { score: { a: NaN, b: 15 } }, { score: { a: 15, b: Infinity } }, { score: { a: null, b: 15 } }]) {
+    const modified = { ...match, ...change };
+    assert.equal(bracketWinner(modified), null);
+    synthetic.matches[synthetic.matches.indexOf(match)] = modified;
+    markup = finalBracket(synthetic, result);
+    assert.ok(!row(markup, "a").includes('bracket-team-winner'));
+    assert.ok(!row(markup, "b").includes('bracket-team-winner'));
+    synthetic.matches[synthetic.matches.indexOf(modified)] = match;
+  }
+  const css = readFileSync("src/final-bracket.css", "utf8");
+  assert.ok(css.includes('.bracket-team-a, .bracket-score-a { color: #165a85; }'));
+  assert.ok(css.includes('.bracket-team-b, .bracket-score-b { color: #994b12; }'));
+  assert.ok(css.includes('.bracket-entry .bracket-team { top: 0; }'));
 });
