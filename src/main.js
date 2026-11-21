@@ -1,4 +1,6 @@
 import "./style.css";
+import "./final-bracket.css";
+import { finalBracket, bindBracketNavigation } from "./final-bracket.js";
 import { escapeHtml as escape } from "./html.js";
 import { bindScoreTooltips } from "./chart-tooltip.js";
 import { MATCH_TABS, gameTimeline, scoreCharts, scoreSequence } from "./match-timeline.js";
@@ -672,7 +674,7 @@ function poolsPage() {
   const initialPools = data.pools.filter((pool) => pool.phase === "first");
   const secondPools = data.pools.filter((pool) => pool.phase === "second");
   const hasFinals = data.matches.some((match) => match.phase === "finals");
-  content.innerHTML = `<div class="page-title"><div><p class="eyebrow">Dai gironi ai piazzamenti</p><h1>Gironi e fasi</h1></div></div><p class="muted">Ordine del foglio originale. Pt. = punti, M.f. = mete fatte, M.s. = mete subite. “—” indica un valore non pubblicato.</p>
+  content.innerHTML = `<div class="page-title"><div><p class="eyebrow">Dai gironi ai piazzamenti</p><h1>Gironi e fasi</h1></div></div>${hasFinals ? '<p class="bracket-top-link"><button type="button" data-final-bracket>Vai al tabellone finale ↓</button></p>' : ""}<p class="muted">Ordine del foglio originale. Pt. = punti, M.f. = mete fatte, M.s. = mete subite. “—” indica un valore non pubblicato.</p>
     <section><h2><span class="phase-number">01</span> Prima fase</h2><p>${initialPools.length} gironi: ${initialPools.map((pool) => `${escape(pool.id)} (${pool.entries.length} squadre)`).join(", ")}. Ogni squadra incontra le altre del proprio girone.</p><div class="pool-grid">${initialPools
       .map(poolTable)
       .join(
@@ -682,10 +684,15 @@ function poolsPage() {
       .map(poolTable)
       .join("")}</div>
     ${data.carryovers.length ? `<details><summary>Incontri ereditati (${data.carryovers.length}, esclusi dal calendario)</summary>${data.carryovers.map((carry) => `<p>${escape(data.pools.find((pool) => pool.id === carry.pool)?.name || carry.pool)}: ${participant(carry.a)} – ${participant(carry.b)} <span class="muted">${shown(carry.score.a)} – ${shown(carry.score.b)}</span></p>`).join("")}</details>` : ""}</section>
-    ${hasFinals ? `<section><h2><span class="phase-number">03</span> Fase finale</h2><p>Progressione riportata nel foglio: W = vincente, L = perdente, Q = quarto, S = semifinale. Gli slot P indicano la classifica parziale dopo la seconda fase.</p>
-      ${["Q", "S", "F"].map((prefix) => `<h3>${{ Q: "Quarti di finale", S: "Semifinali", F: "Finali di piazzamento" }[prefix]}</h3>${fixtureGroups(filterMatches(data, { phase: "finals" }).filter((match) => match.id.startsWith(prefix)))}`).join("")}</section>` : ""}
+    ${finalBracket(data, resultMarkup)}
     <section><h2>Classifica finale</h2>${data.finalClassification.length ? `<ol class="classification">${data.finalClassification.map((entry) => `<li value="${entry.position}">${teamLink(entry.teamId)}</li>`).join("")}</ol>` : empty("Classifica finale non ancora pubblicata")}</section>
     <details class="rules"><summary>Format e regolamento dalla fonte</summary>${data.rules.map((rule) => `<p>${escape(rule.text)}</p>`).join("")}</details>`;
+  bindBracketNavigation(content);
+  content.querySelector("[data-final-bracket]")?.addEventListener("click", () => {
+    const target = content.querySelector("#final-bracket");
+    target?.scrollIntoView({ block: "start", behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
+    target?.focus({ preventScroll: true });
+  });
 }
 
 function unknown() {
