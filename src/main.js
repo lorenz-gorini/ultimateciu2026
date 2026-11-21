@@ -1,6 +1,6 @@
 import "./style.css";
 import "./final-bracket.css";
-import { finalBracket, bindBracketNavigation } from "./final-bracket.js";
+import { finalBracket } from "./final-bracket.js";
 import { escapeHtml as escape } from "./html.js";
 import { bindScoreTooltips } from "./chart-tooltip.js";
 import { MATCH_TABS, gameTimeline, scoreCharts, scoreSequence } from "./match-timeline.js";
@@ -214,6 +214,18 @@ function resultMarkup(match, detail = false) {
   return `${result}<span class="status ${state}">${match.forfeit ? "Risultato a tavolino" : STATES[state]}</span>${checked}`;
 }
 
+function bracketScoreMarkup(match) {
+  const { score: { a, b }, state } = resultView(match);
+  const confirmed = state === "complete";
+  const sideA = confirmed && a > b ? `<strong>${shown(a)}</strong>` : shown(a);
+  const sideB = confirmed && b > a ? `<strong>${shown(b)}</strong>` : shown(b);
+  const text = a === null && b === null ? "–" : `${sideA} – ${sideB}`;
+  const qualifier = { live: "LIVE", provisional: "Provv.", "report-stale": "Ultimo parziale" }[state];
+  const status = match.forfeit ? "Risultato a tavolino" : STATES[state];
+  const accessibleScore = a === null && b === null ? "" : `${shown(a)} a ${shown(b)}. `;
+  return `<a class="bracket-score-link" href="#/match/${encodeURIComponent(match.id)}" aria-label="Apri ${escape(matchLabel(match))}. ${accessibleScore}${escape(status)}">${text}${qualifier ? ` <small>${qualifier}</small>` : ""}</a>`;
+}
+
 function reportMarkup(match) {
   if (!match.reportUrl) return match.forfeit
     ? '<p class="muted">Partita assegnata a tavolino. La fonte pubblica il risultato senza un foglio di gara.</p>'
@@ -244,6 +256,12 @@ function updateReportDisplay() {
     const match = data.matches.find((candidate) => candidate.id === node.dataset.result);
     if (match) node.innerHTML = resultMarkup(match, node.dataset.detail === "true");
   });
+  for (const node of content.querySelectorAll("[data-bracket-result]")) {
+    const match = data.matches.find((candidate) => candidate.id === node.dataset.bracketResult);
+    if (!match) continue;
+    const markup = bracketScoreMarkup(match);
+    if (node.innerHTML !== markup) node.innerHTML = markup;
+  }
   const panel = document.querySelector("#match-report");
   if (panel) {
     const match = data.matches.find((candidate) => candidate.id === panel.dataset.match);
@@ -684,10 +702,9 @@ function poolsPage() {
       .map(poolTable)
       .join("")}</div>
     ${data.carryovers.length ? `<details><summary>Incontri ereditati (${data.carryovers.length}, esclusi dal calendario)</summary>${data.carryovers.map((carry) => `<p>${escape(data.pools.find((pool) => pool.id === carry.pool)?.name || carry.pool)}: ${participant(carry.a)} – ${participant(carry.b)} <span class="muted">${shown(carry.score.a)} – ${shown(carry.score.b)}</span></p>`).join("")}</details>` : ""}</section>
-    ${finalBracket(data, resultMarkup)}
+    ${finalBracket(data, bracketScoreMarkup)}
     <section><h2>Classifica finale</h2>${data.finalClassification.length ? `<ol class="classification">${data.finalClassification.map((entry) => `<li value="${entry.position}">${teamLink(entry.teamId)}</li>`).join("")}</ol>` : empty("Classifica finale non ancora pubblicata")}</section>
     <details class="rules"><summary>Format e regolamento dalla fonte</summary>${data.rules.map((rule) => `<p>${escape(rule.text)}</p>`).join("")}</details>`;
-  bindBracketNavigation(content);
   content.querySelector("[data-final-bracket]")?.addEventListener("click", () => {
     const target = content.querySelector("#final-bracket");
     target?.scrollIntoView({ block: "start", behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });

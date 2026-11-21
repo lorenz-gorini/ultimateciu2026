@@ -21,14 +21,21 @@ test("tabellone includes every official fixture, score, team route and outgoing 
   const markup = finalBracket(data, result);
   for (const match of finals) {
     assert.equal(markup.split(`id="bracket-${match.id}"`).length - 1, 1);
-    assert.equal(markup.split(`data-result="${match.id}"`).length - 1, 1);
+    assert.equal(markup.split(`data-bracket-result="${match.id}"`).length - 1, 1);
     assert.ok(markup.includes(result(match)));
     for (const side of [match.a, match.b]) if (side.teamId) {
       assert.ok(markup.includes(`href="#/team/${side.teamId}"`));
       assert.ok(markup.includes(data.teams.find((team) => team.id === side.teamId).name));
     }
   }
-  assert.equal((markup.match(/data-bracket-jump=/g) || []).length, bracketEdges(finals).length);
+  assert.equal((markup.match(/data-bracket-edge=/g) || []).length, 16);
+  for (const edge of bracketEdges(finals)) {
+    assert.ok(markup.includes(`data-bracket-edge="${edge.from}:${edge.to}:${edge.side}:${edge.outcome}"`));
+  }
+  assert.ok(!markup.includes("data-bracket-jump"));
+  assert.ok(!markup.includes("bracket-time"));
+  assert.ok(!markup.includes("<button"));
+  assert.equal(markup.split("L’11ª e la 12ª classificata retrocedono in Serie B.").length - 1, 1);
   for (let place = 1; place <= 11; place += 2) assert.ok(markup.includes(`${place}°–${place + 1}° posto`));
 
 });
@@ -77,4 +84,27 @@ test("SYNTHETIC newly published final-phase IDs remain accessible without invent
   assert.equal(markup.split('id="bracket-Q5"').length - 1, 1);
   assert.ok(markup.includes('href="#/match/Q5"'));
   assert.ok(!finalBracket(data, result).includes("Altri incontri della fase finale"));
+});
+
+
+test("diagram bypasses lead directly to the source-prescribed final participant", () => {
+  const markup = finalBracket(data, result);
+  for (const [id, path] of [
+    ["Q1:F3:a:L", "M 210 286 H 230 V 390 H 650 V 456 H 680"],
+    ["Q2:F3:b:L", "M 210 126 H 245 V 410 H 665 V 504 H 680"],
+    ["Q3:F4:a:W", "M 210 274 H 230 V 390 H 650 V 456 H 680"],
+    ["Q4:F4:b:W", "M 210 114 H 245 V 410 H 665 V 504 H 680"],
+  ]) {
+    const connector = markup.split(`data-bracket-edge="${id}"`)[1]?.split("</g>")[0];
+    assert.ok(connector?.includes(`d="${path}"`), id);
+  }
+  assert.equal((markup.match(/class="bracket-wire-halo"/g) || []).length, 16);
+  assert.equal((markup.match(/class="bracket-accessible-paths visually-hidden"/g) || []).length, 2);
+});
+
+test("only the Serie A placement diagram explains relegation", () => {
+  const note = "L’11ª e la 12ª classificata retrocedono in Serie B.";
+  const serieB = JSON.parse(readFileSync("public/data-mixed-b.json", "utf8"));
+  assert.equal(finalBracket(data, result).split(note).length - 1, 1);
+  assert.ok(!finalBracket(serieB, result).includes(note));
 });
