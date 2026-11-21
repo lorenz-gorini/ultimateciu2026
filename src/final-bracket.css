@@ -3,23 +3,23 @@
 .bracket-path h3 { margin: 0; }
 .bracket-legend { display: flex; flex-wrap: wrap; gap: .5rem 1.5rem; color: var(--muted); font-size: .82rem; }
 .bracket-legend > span { display: inline-flex; align-items: center; gap: .5rem; }
-.bracket-key { width: 28px; border-top: 1.5px solid #476d68; }
-.bracket-key-loser { border-top-style: dashed; }
+.bracket-key { width: 28px; border-top: 3px solid #17804d; }
+.bracket-key-loser { border-top: 2px dashed #ba7474; }
 .bracket-scroll { overflow-x: auto; padding: .2rem 0; }
-.bracket-diagram { position: relative; width: 900px; height: 540px; margin-inline: auto; isolation: isolate; }
-.bracket-connections { position: absolute; inset: 0; width: 900px; height: 540px; overflow: visible; pointer-events: none; }
+.bracket-diagram { position: relative; margin-inline: auto; isolation: isolate; }
+.bracket-connections { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
 .bracket-wire-halo, .bracket-wire { fill: none; stroke-linecap: square; stroke-linejoin: round; }
 .bracket-wire-halo { stroke: #fff; stroke-width: 6; }
-.bracket-wire { stroke: #476d68; stroke-width: 1.5; }
-.bracket-connection-L .bracket-wire { stroke-dasharray: 5 4; }
-.bracket-round-label { position: absolute; top: 14px; width: 190px; margin: 0; color: var(--muted); font-size: .85rem; }
-.bracket-match { position: absolute; width: 190px; height: 80px; font-size: .95rem; }
+.bracket-wire { stroke: #17804d; stroke-width: 3; }
+.bracket-connection-L .bracket-wire { stroke: #ba7474; stroke-width: 1.5; stroke-dasharray: 5 5; }
+.bracket-round-label { position: absolute; top: 12px; width: 190px; margin: 0; color: var(--muted); font-size: .85rem; }
+.bracket-match { position: absolute; width: 190px; height: 80px; font-size: .88rem; }
 .bracket-match::after { content: ""; position: absolute; top: 31px; bottom: 0; right: 0; border-right: 1px solid #91aaa6; pointer-events: none; }
 .bracket-match-label { position: absolute; top: -17px; left: 0; font-size: .7rem; font-weight: 650; color: var(--muted); line-height: 16px; background: #fff; }
 .bracket-team { position: absolute; width: 190px; height: 32px; display: flex; align-items: center; border-bottom: 1px solid #91aaa6; background: #fff; line-height: 1.12; }
 .bracket-team-a { top: 0; }
 .bracket-team-b { top: 48px; }
-.bracket-team > a, .bracket-team > span { display: block; max-height: 32px; overflow: auto; overflow-wrap: anywhere; font-weight: 650; }
+.bracket-team > a, .bracket-team > span { display: block; max-height: 32px; overflow: hidden; overflow-wrap: anywhere; font-weight: 650; }
 .bracket-result { position: absolute; top: 32px; left: 0; width: 190px; height: 16px; display: flex; align-items: center; justify-content: center; background: #fff; line-height: 1; }
 .bracket-score-link { display: inline-flex; gap: .2rem; align-items: center; font-size: .9rem; color: var(--teal); padding: 2px 8px; min-height: 24px; min-width: 44px; justify-content: center; z-index: 1; background: #fff; }
 .bracket-score-link small { font-size: .72rem; }
@@ -33,3 +33,16 @@
 @media (max-width: 1000px) { .bracket-scroll-hint { display: block; } }
 @media (max-width: 400px) { .bracket-path { padding: .5rem; } }
 .bracket-relegation { margin: .4rem 0 0; font-size: .85rem; font-weight: 650; }
+
+.bracket-lane { margin-top: 1.25rem; border-top: 1px solid var(--line); padding-top: .8rem; }
+.bracket-lane > h4 { margin: 0; font-size: .95rem; }
+.bracket-lane-note { margin: .4rem 0 0; font-size: .82rem; color: var(--muted); }
+.bracket-entry { position: absolute; width: 190px; height: 32px; font-size: .88rem; }
+.bracket-entry-label { position: absolute; top: -19px; left: 0; color: var(--muted); font-size: .72rem; line-height: 17px; }
+.bracket-entry-direct .bracket-entry-label { color: #146a43; font-weight: 750; }
+.bracket-entry-L .bracket-entry-label { color: #9c5656; }
+.bracket-team > a, .bracket-team > span { min-width: 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+
+.bracket-key-direct { border-top: 2px solid #53839b; }
+.bracket-connection-D .bracket-wire { stroke: #53839b; stroke-width: 2; }
+.bracket-entry-direct .bracket-entry-label { color: #376d87; }

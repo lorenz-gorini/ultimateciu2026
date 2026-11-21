@@ -692,7 +692,7 @@ function poolsPage() {
   const initialPools = data.pools.filter((pool) => pool.phase === "first");
   const secondPools = data.pools.filter((pool) => pool.phase === "second");
   const hasFinals = data.matches.some((match) => match.phase === "finals");
-  content.innerHTML = `<div class="page-title"><div><p class="eyebrow">Dai gironi ai piazzamenti</p><h1>Gironi e fasi</h1></div></div>${hasFinals ? '<p class="bracket-top-link"><button type="button" data-final-bracket>Vai al tabellone finale ↓</button></p>' : ""}<p class="muted">Ordine del foglio originale. Pt. = punti, M.f. = mete fatte, M.s. = mete subite. “—” indica un valore non pubblicato.</p>
+  content.innerHTML = `<div class="page-title"><div><p class="eyebrow">Dai gironi ai piazzamenti</p><h1>Gironi e fasi</h1></div></div>${hasFinals ? '<p class="bracket-top-link"><a class="button-link secondary" href="#/pools/finals">Vai al tabellone finale →</a></p>' : ""}<p class="muted">Ordine del foglio originale. Pt. = punti, M.f. = mete fatte, M.s. = mete subite. “—” indica un valore non pubblicato.</p>
     <section><h2><span class="phase-number">01</span> Prima fase</h2><p>${initialPools.length} gironi: ${initialPools.map((pool) => `${escape(pool.id)} (${pool.entries.length} squadre)`).join(", ")}. Ogni squadra incontra le altre del proprio girone.</p><div class="pool-grid">${initialPools
       .map(poolTable)
       .join(
@@ -705,11 +705,12 @@ function poolsPage() {
     ${finalBracket(data, bracketScoreMarkup)}
     <section><h2>Classifica finale</h2>${data.finalClassification.length ? `<ol class="classification">${data.finalClassification.map((entry) => `<li value="${entry.position}">${teamLink(entry.teamId)}</li>`).join("")}</ol>` : empty("Classifica finale non ancora pubblicata")}</section>
     <details class="rules"><summary>Format e regolamento dalla fonte</summary>${data.rules.map((rule) => `<p>${escape(rule.text)}</p>`).join("")}</details>`;
-  content.querySelector("[data-final-bracket]")?.addEventListener("click", () => {
-    const target = content.querySelector("#final-bracket");
-    target?.scrollIntoView({ block: "start", behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
-    target?.focus({ preventScroll: true });
-  });
+}
+
+function finalsPage() {
+  const bracket = finalBracket(data, bracketScoreMarkup, true);
+  if (!bracket) return poolsPage();
+  content.innerHTML = `<a href="#/pools">← Gironi e fasi</a>${bracket}`;
 }
 
 function unknown() {
@@ -737,6 +738,7 @@ function render({ navigation = false } = {}) {
   if (route === "/") schedule();
   else if (route === "/teams") teamsPage();
   else if (route === "/pools") poolsPage();
+  else if (route === "/pools/finals") finalsPage();
   else if (/^\/team\/[^/]+$/.test(route))
     teamPage(decodeURIComponent(route.split("/")[2]));
   else if (/^\/match\/[^/]+$/.test(route))

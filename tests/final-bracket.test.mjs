@@ -87,19 +87,34 @@ test("SYNTHETIC newly published final-phase IDs remain accessible without invent
 });
 
 
-test("diagram bypasses lead directly to the source-prescribed final participant", () => {
+test("pyramids center their final and expose every direct seed on its exact participant side", () => {
   const markup = finalBracket(data, result);
-  for (const [id, path] of [
-    ["Q1:F3:a:L", "M 210 286 H 230 V 390 H 650 V 456 H 680"],
-    ["Q2:F3:b:L", "M 210 126 H 245 V 410 H 665 V 504 H 680"],
-    ["Q3:F4:a:W", "M 210 274 H 230 V 390 H 650 V 456 H 680"],
-    ["Q4:F4:b:W", "M 210 114 H 245 V 410 H 665 V 504 H 680"],
-  ]) {
-    const connector = markup.split(`data-bracket-edge="${id}"`)[1]?.split("</g>")[0];
-    assert.ok(connector?.includes(`d="${path}"`), id);
+  for (const [id, side, seed] of [["S1", "a", "1P"], ["S2", "a", "2P"], ["S3", "b", "12P"], ["S4", "b", "11P"]]) {
+    assert.ok(markup.includes(`data-bracket-entry="${id}:${side}" data-bracket-slot="${seed}"`));
+    assert.ok(markup.includes(`data-bracket-direct="${id}:${side}"`));
+    assert.ok(markup.includes(`Accesso diretto · ${seed.slice(0, -1)}ª`));
   }
-  assert.equal((markup.match(/class="bracket-wire-halo"/g) || []).length, 16);
-  assert.equal((markup.match(/class="bracket-accessible-paths visually-hidden"/g) || []).length, 2);
+  const top = (id) => Number(markup.match(new RegExp(`id="bracket-${id}" style="left:\\d+px;top:(\\d+)px"`))[1]);
+  assert.equal(top("F1"), (top("S1") + top("S2")) / 2);
+  assert.equal(top("F5"), (top("S3") + top("S4")) / 2);
+  assert.equal(top("F4"), (top("Q3") + top("Q4")) / 2);
+});
+
+test("placement transfers preserve exact W/L relationships without long bypass wires", () => {
+  const markup = finalBracket(data, result);
+  for (const id of ["Q1:F3:a:L", "Q2:F3:b:L", "S1:F2:a:L", "S2:F2:b:L", "Q4:S3:a:L", "Q3:S4:a:L", "S3:F6:a:L", "S4:F6:b:L"]) {
+    const connector = markup.split(`data-bracket-edge="${id}"`)[1]?.split("</g>")[0];
+    assert.ok(connector?.includes('data-bracket-transfer="true"'), id);
+  }
+  for (const id of ["Q3:F4:a:W", "Q4:F4:b:W"]) {
+    const connector = markup.split(`data-bracket-edge="${id}"`)[1]?.split("</g>")[0];
+    assert.ok(connector && !connector.includes("data-bracket-transfer"), id);
+  }
+  // Every connector has a single vertical segment; no loop or cross-lane bypass.
+  const paths = [...markup.matchAll(/class="bracket-wire" d="([^"]+)"/g)].map((match) => match[1]);
+  assert.equal(paths.length, 20); // 16 source W/L relationships plus 4 direct entries.
+  for (const path of paths) assert.equal((path.match(/ V /g) || []).length, 1);
+  assert.equal((markup.match(/class="bracket-accessible-paths visually-hidden"/g) || []).length, 6);
 });
 
 test("only the Serie A placement diagram explains relegation", () => {
@@ -107,4 +122,28 @@ test("only the Serie A placement diagram explains relegation", () => {
   const serieB = JSON.parse(readFileSync("public/data-mixed-b.json", "utf8"));
   assert.equal(finalBracket(data, result).split(note).length - 1, 1);
   assert.ok(!finalBracket(serieB, result).includes(note));
+});
+
+
+test("standalone view has one page heading while embedded view retains its phase heading", () => {
+  const standalone = finalBracket(data, result, true);
+  assert.ok(standalone.includes("<h1>Tabellone finale</h1>"));
+  assert.ok(!standalone.includes('phase-number'));
+  assert.ok(finalBracket(data, result).includes('<h2><span class="phase-number">03</span> Tabellone finale</h2>'));
+});
+
+
+test("entry and match connectors meet participant underlines and direct access has a distinct key", () => {
+  const markup = finalBracket(data, result);
+  const direct = markup.split('data-bracket-direct="S1:a"')[1].split("</g>")[0];
+  assert.ok(direct.includes('d="M 202 102 H 242 V 126 H 282"'));
+  const quarter = markup.split('data-bracket-edge="Q2:S1:b:W"')[1].split("</g>")[0];
+  assert.ok(quarter.includes('d="M 202 196 H 242 V 174 H 282"'));
+  assert.ok(markup.includes('bracket-key-direct'));
+  assert.equal((markup.match(/bracket-connection-D/g) || []).length, 4);
+  const synthetic = structuredClone(data);
+  synthetic.matches.find((match) => match.id === "F2").a.teamId = null;
+  const entry = finalBracket(synthetic, result).split('data-bracket-entry="F2:a"')[1].split('</div></div>')[0];
+  assert.equal((entry.match(/Perdente S1/g) || []).length, 1);
+  assert.ok(entry.includes('Squadra da definire'));
 });
