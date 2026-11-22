@@ -167,35 +167,61 @@ class ImporterTests(unittest.TestCase):
         with self.assertRaisesRegex(ImportFailure, "awarded result"):
             validate_data(invalid)
 
-    def test_synthetic_only_awarded_empty_sotg_placeholder_can_lack_date(self) -> None:
+    def test_synthetic_empty_undated_sotg_is_skipped_and_submission_is_warned(self) -> None:
         book = openpyxl.load_workbook(io.BytesIO(self.payload))
-        games, spirit = book["Partite"], book["Valutazioni SOTG"]
-        games["Q5"], games["L5"], games["N5"] = "tavolino", 15, 0
-        # SYNTHETIC replica of the two name-only, match-linked awarded rows.
-        spirit["B2"] = None
+        spirit = book["Valutazioni SOTG"]
         for row in (2, 3):
             spirit[f"E{row}"].hyperlink = None
             spirit[f"E{row}"] = None
+        spirit["B2"] = None
         buffer = io.BytesIO()
         book.save(buffer)
         data = parse_workbook(buffer.getvalue(), TEST_TIME)
-        self.assertTrue(all(evaluation["date"] is None for evaluation in data["sotg"][:2]))
-        self.assertEqual(data["sotg"][0]["provenance"], {"sheet": "Valutazioni SOTG", "range": "A2:M2"})
-        for field, value in (("date", "2026-10-26"), ("total", 0), ("comment", "SYNTHETIC"),
-                             ("formUrl", self.data["sotg"][0]["formUrl"])):
-            invalid = copy.deepcopy(data)
-            invalid["sotg"][0][field] = value
-            with self.subTest(field=field), self.assertRaises(ImportFailure):
-                validate_data(invalid)
-        invalid = copy.deepcopy(data)
-        del invalid["matches"][0]["forfeit"]
-        with self.assertRaisesRegex(ImportFailure, "SOTG date"):
-            validate_data(invalid)
+        self.assertFalse(any(e["matchId"] == "X_1" for e in data["sotg"]))
         spirit["F2"] = "✔"
         buffer = io.BytesIO()
         book.save(buffer)
         book.close()
-        with self.assertRaisesRegex(ImportFailure, "submission without date"):
+        data = parse_workbook(buffer.getvalue(), TEST_TIME)
+        self.assertFalse(any(e["matchId"] == "X_1" for e in data["sotg"]))
+        self.assertEqual(len(data["sourceWarnings"]), 1)
+
+    def test_synthetic_cancelled_fixture_preserves_identity_and_empty_sotg(self) -> None:
+        book = openpyxl.load_workbook(io.BytesIO(self.payload))
+        games, spirit = book["Partite"], book["Valutazioni SOTG"]
+        games["Q5"] = "annullata"
+        for row in (2, 3):
+            spirit[f"E{row}"].hyperlink = None
+            spirit[f"E{row}"] = None
+        spirit["B2"] = None
+        buffer = io.BytesIO()
+        book.save(buffer)
+        data = parse_workbook(buffer.getvalue(), TEST_TIME)
+        match = data["matches"][0]
+        self.assertTrue(match["cancelled"])
+        self.assertEqual(match["id"], "X_1")
+        self.assertEqual(match["score"], {"a": None, "b": None})
+        self.assertIsNone(match["reportUrl"])
+        self.assertEqual(len(data["matches"]), len(self.data["matches"]))
+        self.assertFalse(any(e["matchId"] == "X_1" for e in data["sotg"]))
+        for changes in ({"score": {"a": 0, "b": None}, "resultState": "partial"},
+                        {"forfeit": True},
+                        {"reportUrl": "https://docs.google.com/spreadsheets/d/SYNTHETIC/edit"}):
+            invalid = copy.deepcopy(data)
+            invalid["matches"][0].update(changes)
+            with self.subTest(changes=changes), self.assertRaises(ImportFailure):
+                validate_data(invalid)
+        games["L5"] = 0
+        buffer = io.BytesIO()
+        book.save(buffer)
+        with self.assertRaisesRegex(ImportFailure, "cancelled fixture cannot have scores"):
+            parse_workbook(buffer.getvalue(), TEST_TIME)
+        games["L5"] = None
+        games["Q5"].hyperlink = "https://docs.google.com/spreadsheets/d/SYNTHETIC/edit"
+        buffer = io.BytesIO()
+        book.save(buffer)
+        book.close()
+        with self.assertRaisesRegex(ImportFailure, "cancelled fixture unexpectedly has a hyperlink"):
             parse_workbook(buffer.getvalue(), TEST_TIME)
 
     def test_synthetic_unnamed_player_totals_are_preserved(self) -> None:
@@ -206,6 +232,25 @@ class ImporterTests(unittest.TestCase):
         self.assertEqual(data["players"][0]["total"], 3)
         with self.assertRaises(ImportFailure):
             parse_workbook(synthetic_workbook({"Statistiche": {"A3": "BFD Redshot", "B3": 99}}), TEST_TIME)
+
+    def test_synthetic_bad_form_is_disabled_without_losing_attributable_votes(self) -> None:
+        book = openpyxl.load_workbook(io.BytesIO(self.payload))
+        spirit = book["Valutazioni SOTG"]
+        spirit["E2"].hyperlink = self.data["sotg"][0]["formUrl"].replace("entry.1623410474=X_1", "entry.1623410474=X_2")
+        for col in "GHIJKL":
+            spirit[f"{col}2"] = 0
+        buffer = io.BytesIO()
+        book.save(buffer)
+        book.close()
+        data = parse_workbook(buffer.getvalue(), TEST_TIME)
+        evaluation = data["sotg"][0]
+        self.assertIsNone(evaluation["formUrl"])
+        self.assertEqual(evaluation["total"], 0)
+        self.assertEqual(len(data["sourceWarnings"]), 1)
+        data = parse_workbook(synthetic_workbook({"Valutazioni SOTG": {
+            "C2": "VOLADORA", "D2": "VOLADORA", "G2": 2}}), TEST_TIME)
+        self.assertFalse(any(e["provenance"]["range"] == "A2:M2" for e in data["sotg"]))
+        self.assertEqual(len(data["sourceWarnings"]), 1)
 
     def test_synthetic_opposite_sotg_directions(self) -> None:
         cells = {f"{column}{row}": 0 for row in (2, 3) for column in "GHIJKL"}
@@ -321,7 +366,7 @@ class ImporterTests(unittest.TestCase):
     def test_synthetic_bad_headers_duplicate_ids_and_unknown_names(self) -> None:
         for changes in ({"Partite": {"D4": "changed"}}, {"Partite": {"I6": "X_1"}},
                         {"Partite": {"K5": "Unknown"}}, {"Partite": {"I5": None}},
-                        {"Partite": {"Q5": "annullata"}}):
+                        {"Partite": {"Q5": "unknown synthetic marker"}}):
             with self.subTest(changes=changes), self.assertRaises(ImportFailure):
                 parse_workbook(synthetic_workbook(changes), TEST_TIME)
 
@@ -345,9 +390,17 @@ class ImporterTests(unittest.TestCase):
         data = parse_workbook(synthetic_workbook({"Classifiche e format": {"O20": "BFD Redshot"}}), TEST_TIME)
         self.assertEqual(data["finalClassification"], [{"position": 1, "teamId": "x1", "provenance": {"sheet": "Classifiche e format", "range": "N20:O20"}}])
 
+    def test_synthetic_shared_final_positions_preserve_published_ranks(self) -> None:
+        data = parse_workbook(synthetic_workbook({"Classifiche e format": {
+            "N25": 5, "O24": "BFD Redshot", "O25": "VOLADORA"}}), TEST_TIME)
+        self.assertEqual([entry["position"] for entry in data["finalClassification"]], [5, 5])
+        self.assertEqual([entry["teamId"] for entry in data["finalClassification"]], ["x1", "x5"])
+        for value in (None, 0, -1, 4, 7, 5.5, "5"):
+            with self.subTest(value=value), self.assertRaises(ImportFailure):
+                parse_workbook(synthetic_workbook({"Classifiche e format": {"N25": value}}), TEST_TIME)
+
     def test_synthetic_invalid_evaluation_direction_and_sum(self) -> None:
-        for changes in ({"Valutazioni SOTG": {"C2": "VOLADORA", "D2": "VOLADORA"}},
-                        {"Valutazioni SOTG": {"G2": 1, "H2": 1, "I2": 1, "J2": 1, "K2": 1, "L2": 0}},
+        for changes in ({"Valutazioni SOTG": {"G2": 1, "H2": 1, "I2": 1, "J2": 1, "K2": 1, "L2": 0}},
                         {"Valutazioni SOTG": {"G2": 5}}):
             with self.subTest(changes=changes), self.assertRaises(ImportFailure):
                 parse_workbook(synthetic_workbook(changes), TEST_TIME)

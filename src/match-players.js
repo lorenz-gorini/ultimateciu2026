@@ -94,7 +94,7 @@ export async function requestMatchPlayers(match, teams, previous = null,
 
 /** Called only for an open detail: one initial read; repeats during today's recovery window. */
 export function shouldCheckMatchPlayers(match, entry, scoreEntry, now = new Date(), force = false) {
-  if (!match.reportUrl) return false;
+  if (match.cancelled || !match.reportUrl) return false;
   if (force || !entry) return true;
   return match.resultState !== "complete" && !scoreEntry?.report?.end && inReportRecoveryWindow(match, now)
     && +now - entry.attemptedAt >= REPORT_INTERVAL;

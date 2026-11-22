@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createReportQueue, nextReportCheckDelay, planReportChecks } from "../src/report-refresh.js";
-import { inReportRecoveryWindow, OVERVIEW_REPORT_INTERVAL, reportView, requestReport } from "../src/reports.js";
+import { inReportRecoveryWindow, OVERVIEW_REPORT_INTERVAL, reportContext, reportView, requestReport } from "../src/reports.js";
 
 // SYNTHETIC fixtures and reports only: never written to public/ or the source sheets.
 const now = new Date("2026-11-08T13:30:00Z"); // 14:30 Rome.
@@ -72,6 +72,16 @@ test("overview freshness uses its polling interval and preserves final precedenc
   assert.equal(reportView(match, recent({ report: { ...entry.report, end: "14:15" } }), now).state, "provisional");
   const final = game("final", { resultState: "complete", score: { a: 15, b: 10 } });
   assert.deepEqual(reportView(final, entry, now), { score: final.score, state: "complete" });
+});
+
+test("cancelled matches invalidate old overlays and skip scores and rosters even on manual detail refresh", () => {
+  const match = game("cancelled");
+  // Keep a stale link and data in this synthetic input to exercise the report boundary itself.
+  const cancelled = { ...match, cancelled: true };
+  const entry = recent({ url: match.reportUrl, context: reportContext(match, teams) });
+  assert.notEqual(reportContext(cancelled, teams), entry.context);
+  assert.deepEqual(reportView(cancelled, entry, now), { score: cancelled.score, state: "cancelled" });
+  assert.deepEqual(planReportChecks({ matches: [cancelled] }, { openId: cancelled.id, now, manual: true }), []);
 });
 
 test("homepage batch reads real adapter ranges and updates every result independently", async () => {

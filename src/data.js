@@ -10,6 +10,7 @@ export const PHASES = {
 };
 export const STATES = {
   scheduled: "In programma",
+  cancelled: "Annullata",
   complete: "Risultato finale",
   partial: "Risultato incompleto",
   unreported: "Risultato non disponibile",
@@ -42,6 +43,10 @@ export function validateData(data, expectedDivision = null) {
   invariant(
     matches.size === data.matches.length && matches.size > 0,
     "Partite duplicate o mancanti",
+  );
+  invariant(
+    (data.sourceWarnings || []).every((warning) => !warning.matchId || matches.has(warning.matchId)),
+    "Avviso riferito a una partita sconosciuta",
   );
   for (const field of ["fetchedAt", "sourceReportedAt"]) {
     if (data[field] !== null)
@@ -79,6 +84,8 @@ export function validateData(data, expectedDivision = null) {
     invariant(match.resultState === expected, "Stato risultato incoerente");
     invariant(!match.forfeit || (expected === "complete" && match.reportUrl == null),
       "Risultato a tavolino incoerente");
+    invariant(!match.cancelled || (expected === "none" && !match.forfeit && match.reportUrl == null),
+      "Partita annullata con risultato o report");
     invariant(
       expected !== "complete" ||
         (match.a.teamId !== null && match.b.teamId !== null),
@@ -94,7 +101,7 @@ export function validateData(data, expectedDivision = null) {
     const match = matches.get(evaluation.matchId);
     invariant(
       match && (match.date === evaluation.date ||
-        (evaluation.date === null && match.forfeit && evaluation.formUrl == null &&
+        (evaluation.date === null && (match.forfeit || match.cancelled) && evaluation.formUrl == null &&
           [...evaluation.categories, evaluation.total, evaluation.comment].every((value) => value === null))),
       "Partita/data SOTG sconosciuta",
     );
@@ -154,6 +161,7 @@ export function validateData(data, expectedDivision = null) {
 
 /** Deduplicate identical unresolved-team links; keep both evaluation directions. */
 export function evaluationFormOptions(data, matchId) {
+  if (data.matches.find((match) => match.id === matchId)?.cancelled) return [];
   const names = new Map(data.teams.map((team) => [team.id, team.name]));
   const options = new Map();
   for (const evaluation of data.sotg.filter((entry) => entry.matchId === matchId && entry.formUrl)) {
@@ -204,6 +212,7 @@ export function romeNow(now = new Date()) {
 }
 
 export function matchState(match, now = new Date()) {
+  if (match.cancelled) return "cancelled";
   if (match.resultState !== "none") return match.resultState;
   if (!match.date || !match.start) return "unresolved";
   const local = romeNow(now);

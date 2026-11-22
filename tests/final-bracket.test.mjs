@@ -142,6 +142,9 @@ test("entry and match connectors meet participant underlines and direct access h
   assert.ok(markup.includes('bracket-key-direct'));
   assert.equal((markup.match(/bracket-connection-D/g) || []).length, 4);
   const synthetic = structuredClone(data);
+  const semifinal = synthetic.matches.find((match) => match.id === "S1");
+  semifinal.resultState = "none";
+  semifinal.score = { a: null, b: null };
   synthetic.matches.find((match) => match.id === "F2").a.teamId = null;
   const entry = finalBracket(synthetic, result).split('data-bracket-entry="F2:a"')[1].split('</div></div>')[0];
   assert.equal((entry.match(/Perdente S1/g) || []).length, 1);

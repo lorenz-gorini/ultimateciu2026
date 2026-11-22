@@ -44,6 +44,39 @@
       "type": "string",
       "pattern": "^[a-f0-9]{64}$"
     },
+    "sourceWarnings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["message", "provenance"],
+        "additionalProperties": false,
+        "properties": {
+          "message": {
+            "type": "string",
+            "minLength": 1
+          },
+          "matchId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "provenance": {
+            "type": "object",
+            "required": ["sheet", "range"],
+            "additionalProperties": false,
+            "properties": {
+              "sheet": {
+                "type": "string",
+                "minLength": 1
+              },
+              "range": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      }
+    },
     "teams": {
       "type": "array",
       "items": {
@@ -196,6 +229,9 @@
             "enum": ["none", "partial", "complete"]
           },
           "forfeit": {
+            "type": "boolean"
+          },
+          "cancelled": {
             "type": "boolean"
           },
           "reportUrl": {

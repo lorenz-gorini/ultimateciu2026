@@ -27,6 +27,7 @@ for (const match of data.matches) {
   match.score = { a: null, b: null };
   match.resultState = "none";
   delete match.forfeit;
+  delete match.cancelled;
 }
 for (const evaluation of data.sotg) {
   evaluation.date = data.matches.find((match) => match.id === evaluation.matchId).date;
@@ -599,4 +600,43 @@ test("SYNTHETIC forfeits require a final score and permit only an empty undated 
   reject((_, __, e) => { e.comment = "present"; });
   reject((_, __, e) => { e.total = 0; });
   reject((_, __, e) => { e.formUrl = "https://docs.google.com/forms/d/e/SYNTHETIC/viewform?x=1"; });
+});
+
+test("SYNTHETIC cancellations remain distinct from missing results and awarded scores", () => {
+  const sample = clone();
+  const match = sample.matches.find((item) => item.id === first.id);
+  Object.assign(match, first, { cancelled: true, reportUrl: null });
+  sample.sotg = sample.sotg.filter((entry) => entry.matchId !== match.id);
+  sample.sotg.push({ matchId: match.id, date: null, evaluatingTeamId: match.a.teamId,
+    evaluatedTeamId: match.b.teamId, categories: [null, null, null, null, null],
+    total: null, comment: null, formUrl: null, formTeamsMatch: null,
+    provenance: { sheet: "SYNTHETIC", range: "A1" } });
+  assert.equal(validateData(sample), sample);
+  const after = new Date("2026-10-26T10:00:00Z");
+  assert.equal(matchState(match, now), "cancelled");
+  assert.equal(matchState(match, after), "cancelled");
+  assert.deepEqual(filterMatches(sample, { status: "cancelled" }, after), [match]);
+  for (const changes of [{ score: { a: 1, b: null }, resultState: "partial" },
+    { score: { a: 15, b: 0 }, resultState: "complete", forfeit: true },
+    { reportUrl: reportMatch.reportUrl }]) {
+    const invalid = structuredClone(sample);
+    Object.assign(invalid.matches.find((item) => item.id === match.id), changes);
+    assert.throws(() => validateData(invalid), /Partita annullata con risultato o report/);
+  }
+  sample.sotg.at(-1).total = 0;
+  assert.throws(() => validateData(sample), /Partita\/data SOTG sconosciuta/);
+});
+
+test("SYNTHETIC source warnings may link to a known fixture and require source provenance", () => {
+  const sample = clone();
+  const provenance = { sheet: "SYNTHETIC", range: "A10:M10" };
+  sample.sourceWarnings = [
+    { message: "Division warning", provenance },
+    { message: "Fixture warning", provenance, matchId: first.id },
+  ];
+  assert.equal(validateData(sample), sample);
+  sample.sourceWarnings[1].matchId = "SYNTHETIC_MISSING";
+  assert.throws(() => validateData(sample), /Avviso riferito a una partita sconosciuta/);
+  delete sample.sourceWarnings[1].provenance;
+  assert.throws(() => validateData(sample), /Formato dati non valido/);
 });

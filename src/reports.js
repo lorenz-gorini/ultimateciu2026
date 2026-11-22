@@ -156,9 +156,9 @@ export async function readReportRanges(reportUrl, ranges, { fetcher = fetch, now
   }));
 }
 
-/** A postponed fixture or changed participants must not reuse an old report overlay. */
+/** A cancelled/postponed fixture or changed participants must not reuse an old report overlay. */
 export function reportContext(match, teams, aliases = {}) {
-  return JSON.stringify([match.reportUrl, match.date, aliases, ...[match.a, match.b].flatMap((side) =>
+  return JSON.stringify([match.reportUrl, Boolean(match.cancelled), match.date, aliases, ...[match.a, match.b].flatMap((side) =>
     [side.teamId, teams.find((team) => team.id === side.teamId)?.name])]);
 }
 
@@ -182,7 +182,7 @@ export async function requestReport(match, teams, previous = null,
 /** Finished L–N values always win. Unverified/stale reports never get a LIVE label. */
 export function reportView(match, entry, now = new Date()) {
   const official = { score: match.score, state: matchState(match, now) };
-  if (match.resultState === "complete" || !entry?.report?.score) return official;
+  if (match.cancelled || match.resultState === "complete" || !entry?.report?.score) return official;
   const report = entry.report;
   const stale = entry.error || (!report.end && (!inReportRecoveryWindow(match, now)
     || now.getTime() - entry.checkedAt > 2 * (entry.interval || REPORT_INTERVAL) + 5000));
@@ -214,7 +214,7 @@ export function inReportRecoveryWindow(match, now = new Date()) {
 
 /** A manual overview check bypasses the interval, but still excludes official finals and old days. */
 export function shouldCheckReport(match, entry, now = new Date(), { force = false, detail = true } = {}) {
-  if (!match.reportUrl) return false;
+  if (match.cancelled || !match.reportUrl) return false;
   if (entry && entry.url !== match.reportUrl) entry = null;
   // Historical finals need one initial report read for their goal-by-goal view.
   if (detail && !entry) return true;
