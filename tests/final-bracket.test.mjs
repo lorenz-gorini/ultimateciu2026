@@ -176,7 +176,7 @@ test("SYNTHETIC junction feeders terminate together and outgoing wires start at 
   assert.ok(!ninth.includes('F5 · 9°–10° posto'));
 });
 
-test("SYNTHETIC official winner weight and side colors follow the destination side", () => {
+test("SYNTHETIC official winner emphasis follows the destination side in a shared text color", () => {
   const synthetic = structuredClone(data);
   const match = synthetic.matches.find((match) => match.id === "F2");
   Object.assign(match, { score: { a: 14, b: 15 }, resultState: "complete" });
@@ -195,7 +195,7 @@ test("SYNTHETIC official winner weight and side colors follow the destination si
     synthetic.matches[synthetic.matches.indexOf(modified)] = match;
   }
   const css = readFileSync("src/final-bracket.css", "utf8");
-  assert.ok(css.includes('.bracket-team-a, .bracket-score-a { color: #165a85; }'));
-  assert.ok(css.includes('.bracket-team-b, .bracket-score-b { color: #994b12; }'));
+  assert.ok(css.includes('.bracket-team > a, .bracket-score-link { color: inherit; }'));
+  assert.doesNotMatch(css, /\.bracket-(?:team|score)-[ab]\b[^{}]*\{[^}]*\bcolor:/);
   assert.ok(css.includes('.bracket-entry .bracket-team { top: 0; }'));
 });

@@ -21,7 +21,7 @@
 .bracket-team-b { top: 48px; }
 .bracket-team > a, .bracket-team > span { display: block; min-width: 0; max-height: 32px; overflow: clip; overflow-wrap: anywhere; font-weight: 400; }
 .bracket-result { position: absolute; top: 32px; left: 0; width: 190px; height: 16px; display: flex; align-items: center; justify-content: center; background: #fff; line-height: 1; }
-.bracket-score-link { display: inline-flex; gap: .2rem; align-items: center; font-size: .9rem; color: var(--teal); padding: 2px 8px; min-height: 24px; min-width: 44px; justify-content: center; z-index: 1; background: #fff; }
+.bracket-score-link { display: inline-flex; gap: .2rem; align-items: center; font-size: .9rem; padding: 2px 8px; min-height: 24px; min-width: 44px; justify-content: center; z-index: 1; background: #fff; }
 .bracket-score-link small { font-size: .72rem; }
 .bracket-score-link strong { font-weight: 850; }
 .bracket-score-link:focus-visible, .bracket-team a:focus-visible { outline: 2px solid #b77525; outline-offset: 1px; }
@@ -54,9 +54,7 @@
 .bracket-match-junction .bracket-score-link { width: 80px; box-sizing: border-box; }
 .bracket-score-link { position: relative; white-space: nowrap; }
 .bracket-match-junction .bracket-score-link small { position: absolute; top: calc(100% + 3px); left: 50%; transform: translateX(-50%); white-space: nowrap; }
-.bracket-team-a, .bracket-score-a { color: #165a85; }
-.bracket-team-b, .bracket-score-b { color: #994b12; }
-.bracket-team > a { color: inherit; }
+.bracket-team > a, .bracket-score-link { color: inherit; }
 .bracket-team-winner > a, .bracket-team-winner > span { font-weight: 800; }
-/* Entry rows keep their destination side/color without the match's vertical offset. */
+/* Entry rows keep their destination side without the match's vertical offset. */
 .bracket-entry .bracket-team { top: 0; }
