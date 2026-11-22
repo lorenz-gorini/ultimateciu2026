@@ -399,6 +399,36 @@ class ImporterTests(unittest.TestCase):
             with self.subTest(value=value), self.assertRaises(ImportFailure):
                 parse_workbook(synthetic_workbook({"Classifiche e format": {"N25": value}}), TEST_TIME)
 
+    def test_synthetic_identical_final_assignments_are_deduplicated(self) -> None:
+        data = parse_workbook(synthetic_workbook({"Classifiche e format": {
+            "N25": 5, "O24": "BFD Redshot", "O25": "BFD Redshot"}}), TEST_TIME)
+        self.assertEqual(data["finalClassification"], [{
+            "position": 5, "teamId": "x1", "provenance": {
+                "sheet": "Classifiche e format", "range": "N24:O24"}}])
+        self.assertNotIn("sourceWarnings", data)
+
+    def test_synthetic_conflicting_final_assignments_are_withheld_and_disclosed(self) -> None:
+        data = parse_workbook(synthetic_workbook({"Classifiche e format": {
+            "O20": "UFO", "N25": 5, "O24": "BFD Redshot",
+            "O25": "VOLADORA", "O31": "UFO"}}), TEST_TIME)
+        self.assertEqual([entry["position"] for entry in data["finalClassification"]], [5, 5])
+        self.assertEqual([entry["teamId"] for entry in data["finalClassification"]], ["x1", "x5"])
+        self.assertEqual(data["sourceWarnings"], [{
+            "message": "Nel foglio UFO compare al 1° e al 12° posto. Piazzamento da confermare.",
+            "provenance": {"sheet": "Classifiche e format", "range": "N20:O31"}}])
+        self.assertEqual(data["matches"], self.data["matches"])
+
+    def test_raw_json_duplicate_final_team_still_fails(self) -> None:
+        data = parse_workbook(synthetic_workbook({"Classifiche e format": {
+            "O20": "UFO"}}), TEST_TIME)
+        for position in (1, 12):
+            duplicate = copy.deepcopy(data)
+            duplicate["finalClassification"].append({
+                "position": position, "teamId": "x4",
+                "provenance": {"sheet": "Classifiche e format", "range": "N31:O31"}})
+            with self.subTest(position=position), self.assertRaisesRegex(ImportFailure, "Duplicate final team"):
+                validate_data(duplicate)
+
     def test_synthetic_invalid_evaluation_direction_and_sum(self) -> None:
         for changes in ({"Valutazioni SOTG": {"G2": 1, "H2": 1, "I2": 1, "J2": 1, "K2": 1, "L2": 0}},
                         {"Valutazioni SOTG": {"G2": 5}}):

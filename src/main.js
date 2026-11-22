@@ -695,6 +695,7 @@ function poolsPage() {
   const initialPools = data.pools.filter((pool) => pool.phase === "first");
   const secondPools = data.pools.filter((pool) => pool.phase === "second");
   const hasFinals = data.matches.some((match) => match.phase === "finals");
+  const placementWarnings = (data.sourceWarnings || []).filter((issue) => issue.provenance.sheet === "Classifiche e format");
   content.innerHTML = `<div class="page-title"><div><p class="eyebrow">Dai gironi ai piazzamenti</p><h1>Gironi e fasi</h1></div></div>${hasFinals ? '<p class="bracket-top-link"><a class="button-link secondary" href="#/pools/finals">Vai al tabellone finale →</a></p>' : ""}<p class="muted">Ordine del foglio originale. Pt. = punti, M.f. = mete fatte, M.s. = mete subite. “—” indica un valore non pubblicato.</p>
     <section><h2><span class="phase-number">01</span> Prima fase</h2><p>${initialPools.length} gironi: ${initialPools.map((pool) => `${escape(pool.id)} (${pool.entries.length} squadre)`).join(", ")}. Ogni squadra incontra le altre del proprio girone.</p><div class="pool-grid">${initialPools
       .map(poolTable)
@@ -706,7 +707,7 @@ function poolsPage() {
       .join("")}</div>
     ${data.carryovers.length ? `<details><summary>Incontri ereditati (${data.carryovers.length}, esclusi dal calendario)</summary>${data.carryovers.map((carry) => `<p>${escape(data.pools.find((pool) => pool.id === carry.pool)?.name || carry.pool)}: ${participant(carry.a)} – ${participant(carry.b)} <span class="muted">${shown(carry.score.a)} – ${shown(carry.score.b)}</span></p>`).join("")}</details>` : ""}</section>
     ${finalBracket(data, bracketScoreMarkup)}
-    <section><h2>Classifica finale</h2>${data.finalClassification.length ? `<ol class="classification">${data.finalClassification.map((entry) => `<li value="${entry.position}">${teamLink(entry.teamId)}</li>`).join("")}</ol>` : empty("Classifica finale non ancora pubblicata")}</section>
+    <section><h2>Classifica finale</h2>${placementWarnings.map((issue) => `<p class="form-warning">${escape(issue.message)}</p>`).join("")}${data.finalClassification.length ? `<ol class="classification">${data.finalClassification.map((entry) => `<li value="${entry.position}">${teamLink(entry.teamId)}</li>`).join("")}</ol>` : empty("Classifica finale non ancora pubblicata")}</section>
     <details class="rules"><summary>Format e regolamento dalla fonte</summary>${data.rules.map((rule) => `<p>${escape(rule.text)}</p>`).join("")}</details>`;
 }
 

@@ -330,6 +330,8 @@ def parse_workbook(payload: bytes, fetched_at: str, source_mode: str = "live", *
         pools.append({"id": pool_id, "name": label, "phase": phase, "entries": entries,
                       "provenance": provenance(names[0], f"{openpyxl.utils.get_column_letter(offset)}{rows.start}:{openpyxl.utils.get_column_letter(offset + 4)}{rows.stop - 1}")})
     final_classification = []
+    final_entries_by_team = {}
+    source_warnings = []
     previous_position = None
     for row in layout["final_rows"]:
         ordinal = row - layout["final_rows"].start + 1
@@ -343,9 +345,26 @@ def parse_workbook(payload: bytes, fetched_at: str, source_mode: str = "live", *
         name = standings.get(row, 15)
         if name is not None:
             require(name in by_name, f"O{row}: unknown final team")
-            final_classification.append({"position": position, "teamId": by_name[name], "provenance": provenance(names[0], f"N{row}:O{row}")})
+            final_entries_by_team.setdefault(name, []).append({
+                "position": position, "teamId": by_name[name],
+                "provenance": provenance(names[0], f"N{row}:O{row}")})
 
-    sotg, ignored_sotg_rows, source_warnings = [], 0, []
+    for name, entries in final_entries_by_team.items():
+        positions = list(dict.fromkeys(entry["position"] for entry in entries))
+        if len(positions) == 1:
+            # Repeated copies of the same published assignment are redundant.
+            final_classification.append(entries[0])
+            continue
+        # Conflicting source assignments cannot establish any definitive rank.
+        # Preserve their evidence in a warning without guessing the correct row.
+        ranks = " e ".join(f"al {position}°" for position in positions)
+        first_row = entries[0]["provenance"]["range"].split(":")[0]
+        last_row = entries[-1]["provenance"]["range"].split(":")[-1]
+        source_warnings.append({
+            "message": f"Nel foglio {name} compare {ranks} posto. Piazzamento da confermare.",
+            "provenance": provenance(names[0], f"{first_row}:{last_row}")})
+
+    sotg, ignored_sotg_rows = [], 0
     matches_by_id = {match["id"]: match for match in matches}
     sotg_directions = set()
 
