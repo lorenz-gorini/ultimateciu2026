@@ -2,6 +2,24 @@ import { escapeHtml as escape } from "./html.js";
 
 const placement = { F1: "1°–2° posto", F2: "3°–4° posto", F3: "5°–6° posto", F4: "7°–8° posto", F5: "9°–10° posto", F6: "11°–12° posto" };
 
+// Placement ranges in the Serie A organizer's “Classifiche e format” rules.
+const qualifyingRounds = {
+  Q1: "Quarti di finale · 1°–6° posto", Q2: "Quarti di finale · 1°–6° posto",
+  Q3: "Quarti di finale · 7°–12° posto", Q4: "Quarti di finale · 7°–12° posto",
+  S1: "Semifinale · 1°–4° posto", S2: "Semifinale · 1°–4° posto",
+  S3: "Semifinale · 9°–12° posto", S4: "Semifinale · 9°–12° posto",
+};
+
+export function fixturePhaseLabel(match, data) {
+  if (match.phase === "finals") {
+    if ((data.division ?? "mixed-a") !== "mixed-a") return "Fase finale";
+    if (placement[match.id]) return `Finale · ${placement[match.id]}`;
+    return qualifyingRounds[match.id] || "Fase finale";
+  }
+  const pool = data.pools.find((item) => item.id === match.pool);
+  return pool?.name || (match.phase === "first" ? "Prima fase" : "Seconda fase");
+}
+
 /** Dependencies come from the organizer's W/L slots, never from a conventional bracket. */
 export function bracketEdges(matches) {
   const ids = new Set(matches.map((match) => match.id));

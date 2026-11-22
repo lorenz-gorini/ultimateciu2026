@@ -1,7 +1,7 @@
 import { requestCalendar } from "./calendar-refresh.js";
 import "./style.css";
 import "./final-bracket.css";
-import { bracketParticipant, bracketWinner, finalBracket } from "./final-bracket.js";
+import { bracketParticipant, bracketWinner, finalBracket, fixturePhaseLabel } from "./final-bracket.js";
 import { escapeHtml as escape } from "./html.js";
 import { bindScoreTooltips } from "./chart-tooltip.js";
 import { MATCH_TABS, gameTimeline, scoreCharts, scoreSequence } from "./match-timeline.js";
@@ -81,9 +81,10 @@ function persistPreferences() {
 
 function updateDivisionHeader() {
   const selected = DIVISIONS[division];
-  document.querySelector("#competition-title").textContent = `${selected.label} 2026`;
+  const headerDivision = document.querySelector("#header-division");
+  headerDivision.innerHTML = Object.entries(DIVISIONS)
+    .map(([id, entry]) => `<option value="${escape(id)}"${id === division ? " selected" : ""}>${escape(entry.label)} 2026</option>`).join("");
   document.title = `CIU ${selected.label} 2026`;
-  document.querySelector(".brand").setAttribute("aria-label", `${document.title}, vai alle partite`);
   document.querySelectorAll("[data-source-link]").forEach((link) => { link.href = selected.sourceUrl; });
 }
 
@@ -101,7 +102,7 @@ function restoreDivisionData() {
   }
 }
 
-function changeDivision(id, { fromNavigation = false } = {}) {
+function changeDivision(id, { fromNavigation = false, focusTarget = "#division" } = {}) {
   if (id === division || !Object.hasOwn(DIVISIONS, id)) return;
   calendarCheckedAt = null;
   calendarNotice = "";
@@ -125,7 +126,7 @@ function changeDivision(id, { fromNavigation = false } = {}) {
   restoreDivisionData();
   render({ navigation: true });
   refresh();
-  if (!fromNavigation) document.querySelector("#division")?.focus({ preventScroll: true });
+  if (!fromNavigation) document.querySelector(focusTarget)?.focus({ preventScroll: true });
 }
 
 const empty = (text) => `<div class="empty">${escape(text)}</div>`;
@@ -203,13 +204,18 @@ function renderFreshness() {
     document.querySelector("#refresh").focus({ preventScroll: true });
 }
 
+const fixtureDate = new Intl.DateTimeFormat("it-IT", {
+  timeZone: "UTC", day: "numeric", month: "short",
+});
+
 function fixture(match) {
+  const dateLabel = match.date ? fixtureDate.format(new Date(`${match.date}T12:00:00Z`)) : "Data da definire";
   return `<article class="fixture" data-match="${escape(match.id)}">
-    <div class="fixture-time"><time>${escape(match.start || "Da definire")}</time><span>${escape(match.end || "")}</span></div>
+    <div class="fixture-time"><time class="fixture-date" ${match.date ? `datetime="${escape(match.date)}"` : ""} aria-label="${escape(formatDate(match.date))}">${escape(dateLabel)}</time><span class="fixture-hours"><time>${escape(match.start || "Ora da definire")}</time>${match.end ? `<span>– ${escape(match.end)}</span>` : ""}</span></div>
     <div class="fixture-contest"><div class="fixture-side fixture-side-a">${participant(match.a)}</div>
       <div class="fixture-result" data-result="${escape(match.id)}">${resultMarkup(match)}</div>
       <div class="fixture-side fixture-side-b">${participant(match.b)}</div></div>
-    <div class="fixture-place"><span>${location(match)}</span><span>${PHASES[match.phase]}${match.pool ? ` · ${escape(data.pools.find((pool) => pool.id === match.pool)?.name || match.pool)}` : ""}</span></div>
+    <div class="fixture-place"><strong class="fixture-phase">${escape(fixturePhaseLabel(match, data))}</strong><span>${location(match)}</span></div>
     <a class="detail-link" href="#/match/${encodeURIComponent(match.id)}" aria-label="Dettagli ${escape(matchLabel(match))}">Dettagli</a>
   </article>`;
 }
@@ -262,16 +268,6 @@ function updateReportDisplay() {
   const active = content.contains(document.activeElement) ? document.activeElement : null;
   const focusedHref = active?.getAttribute("href");
   if (locationHash() === "/" && filters.status) updateMatches();
-  content.querySelectorAll("[data-team-states]").forEach((node) => {
-    const states = node.dataset.teamStates.split(",");
-    const matches = filterMatches(data, {}).filter((match) => states.includes(resultState(match))
-      && [match.a.teamId, match.b.teamId].includes(node.dataset.team));
-    const membership = matches.map((match) => match.id).join(",");
-    if (node.dataset.members !== membership) {
-      node.innerHTML = fixtureGroups(matches);
-      node.dataset.members = membership;
-    }
-  });
   content.querySelectorAll("[data-result]").forEach((node) => {
     const match = data.matches.find((candidate) => candidate.id === node.dataset.result);
     if (match) node.innerHTML = resultMarkup(match, node.dataset.detail === "true");
@@ -388,20 +384,9 @@ async function refreshReports({ manual = false } = {}) {
   return result;
 }
 
-function fixtureGroups(matches, anchors = false) {
+function fixtureList(matches) {
   if (!matches.length) return empty("Nessuna partita da mostrare.");
-  const groups = new Map();
-  for (const match of matches) {
-    const key = match.date || "";
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(match);
-  }
-  return [...groups]
-    .map(
-      ([date, fixtures]) =>
-        `<section class="date-group" ${anchors ? `id="date-${date || "unknown"}"` : ""}><h2>${escape(formatDate(date))}<span>${fixtures.length} ${fixtures.length === 1 ? "partita" : "partite"}</span></h2><div class="fixtures">${fixtures.map(fixture).join("")}</div></section>`,
-    )
-    .join("");
+  return `<div class="fixtures" aria-label="Partite in ordine cronologico">${matches.map(fixture).join("")}</div>`;
 }
 
 function options(values, selected) {
@@ -566,7 +551,7 @@ function updateMatches() {
   document.querySelector("#match-count").textContent =
     `${matches.length} di ${data.matches.length} partite · Gli slot indicano qualificazioni ancora da risolvere.`;
   document.querySelector("#match-list").innerHTML = matches.length
-    ? fixtureGroups(matches, true)
+    ? fixtureList(matches)
     : empty("Nessuna partita corrisponde ai filtri. Prova ad azzerarli.");
 }
 
@@ -640,17 +625,9 @@ function teamPage(id) {
       .filter((entry) => entry.teamId === id)
       .map((entry) => ({ ...entry, name: pool.name })),
   );
-  const group = (states) => {
-    const selected = matches.filter((match) => states.includes(resultState(match)));
-    return `<div data-team="${escape(id)}" data-team-states="${states.join(",")}" data-members="${selected.map((match) => match.id).join(",")}">${fixtureGroups(selected)}</div>`;
-  };
   content.innerHTML = `<a class="back" href="#/teams">← Tutte le squadre</a><div class="page-title"><div><p class="eyebrow">Girone ${selected.pool} · Slot ${selected.slot}</p><h1>${escape(selected.name)}</h1><p>${escape(selected.affiliation)} · ${escape(selected.province)}</p></div></div>
     <section><h2>Statistiche dei gironi</h2><div class="stats-line">${entries.map((entry) => `<div><strong>${escape(entry.name)}</strong><p>${shown(entry.points)} punti · ${shown(entry.goalsFor)} mete fatte · ${shown(entry.goalsAgainst)} subite</p></div>`).join("")}</div><p class="muted">Ordine e valori dal foglio; i punti iniziali a zero non determinano qualificazioni.</p></section>
-    <section><h2>In programma</h2>${group(["scheduled", "unresolved"])}</section>
-    <section><h2>Parziali dal report</h2>${group(["live", "provisional", "report-stale"])}</section>
-    ${matches.some((match) => match.cancelled) ? `<section><h2>Partite annullate</h2>${group(["cancelled"])}</section>` : ""}
-    <section><h2>Risultati registrati</h2>${group(["complete"])}</section>
-    <section><h2>Risultati incompleti o non disponibili</h2>${group(["partial", "unreported"])}</section>
+    <section><h2>Partite</h2>${fixtureList(matches)}</section>
     <section class="players-section"><h2>Giocatori e statistiche</h2><p class="muted">Elenco della squadra pubblicato nella fonte, non roster verificato di una partita.</p>${playersTable(data.players.filter((player) => player.teamId === id))}<p>Questi sono totali stagionali. Apri una partita per consultare le presenze e le statistiche disponibili nel suo report.</p></section>`;
 }
 
@@ -692,7 +669,7 @@ function matchPage(id) {
     ${evaluations.length ? evaluations.map((evaluation) => `<article class="evaluation"><h3>${teamLink(evaluation.evaluatingTeamId)} valuta ${teamLink(evaluation.evaluatedTeamId)}</h3><dl>${data.sotgCategories.map((category, index) => `<div><dt>${escape(category)}</dt><dd>${shown(evaluation.categories[index])}</dd></div>`).join("")}<div class="total"><dt>Totale</dt><dd>${shown(evaluation.total)}</dd></div></dl><p>${evaluation.comment === null ? "Commento non pubblicato" : escape(evaluation.comment)}</p></article>`).join("") : empty("Valutazioni non ancora pubblicate")}
     ${evaluations.length === 1 ? '<p class="muted">L’altra valutazione non è ancora pubblicata.</p>' : ""}`;
   content.innerHTML = `<a class="back" href="#/">← Torna alle partite</a>
-    <section class="match-overview"><p class="eyebrow">${escape(id)} · ${PHASES[match.phase]}</p>
+    <section class="match-overview"><p class="eyebrow">${escape(id)} · ${escape(fixturePhaseLabel(match, data))}</p>
       <h1 class="match-heading"><span class="team-a">${participant(match.a)}</span><span>vs</span><span class="team-b">${participant(match.b)}</span></h1>
       <div class="match-summary"><div class="match-result" data-result="${escape(id)}" data-detail="true" aria-live="polite">${resultMarkup(match, true)}</div><div class="match-meta"><p>${escape(formatDate(match.date))} · ${escape(match.start || "Orario da definire")}${match.end ? `–${escape(match.end)}` : ""}</p><p>${location(match)}</p></div><div class="match-actions">${evaluationFormControl(forms)}${match.reportUrl ? `<a class="button-link secondary" href="${escape(match.reportUrl)}" target="_blank" rel="noopener noreferrer">Foglio di gara ↗</a>` : ""}</div></div>
       ${forms.some((form) => form.warning) ? '<p class="form-warning">Il link Valuta originale precompila squadre diverse. Controlla i campi squadra nel modulo prima di inviarlo.</p>' : ""}
@@ -898,6 +875,9 @@ content.addEventListener("keydown", (event) => {
 
 content.addEventListener("change", (event) => {
   if (event.target.id === "division") changeDivision(event.target.value);
+});
+document.querySelector("#header-division").addEventListener("change", (event) => {
+  changeDivision(event.target.value, { focusTarget: "#header-division" });
 });
 updateDivisionHeader();
 restoreDivisionData();

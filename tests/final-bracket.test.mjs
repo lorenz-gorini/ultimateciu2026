@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { bracketConnection, bracketEdges, bracketParticipant, bracketWinner, finalBracket } from "../src/final-bracket.js";
+import { bracketConnection, bracketEdges, bracketParticipant, bracketWinner, finalBracket, fixturePhaseLabel } from "../src/final-bracket.js";
 
 const data = JSON.parse(readFileSync("public/data.json", "utf8"));
 const finals = data.matches.filter((match) => match.phase === "finals");
@@ -201,4 +201,17 @@ test("SYNTHETIC official winner emphasis follows the destination side in a share
   assert.ok(css.includes('.bracket-team > a, .bracket-score-link { color: inherit; }'));
   assert.doesNotMatch(css, /\.bracket-(?:team|score)-[ab]\b[^{}]*\{[^}]*\bcolor:/);
   assert.ok(css.includes('.bracket-entry .bracket-team { top: 0; }'));
+});
+
+test("fixture labels use the organizer's pool or the Serie A placement range", () => {
+  const label = (id) => fixturePhaseLabel(data.matches.find((match) => match.id === id), data);
+  assert.equal(label("Q3"), "Quarti di finale · 7°–12° posto");
+  assert.equal(label("S3"), "Semifinale · 9°–12° posto");
+  assert.equal(label("F4"), "Finale · 7°–8° posto");
+  for (const file of ["public/data.json", "public/data-mixed-b.json"]) {
+    const division = JSON.parse(readFileSync(file, "utf8"));
+    for (const match of division.matches.filter((m) => m.pool)) {
+      assert.equal(fixturePhaseLabel(match, division), division.pools.find((pool) => pool.id === match.pool).name);
+    }
+  }
 });
