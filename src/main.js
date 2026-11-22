@@ -1,3 +1,4 @@
+import { requestCalendar } from "./calendar-refresh.js";
 import "./style.css";
 import "./final-bracket.css";
 import { bracketParticipant, bracketWinner, finalBracket } from "./final-bracket.js";
@@ -37,11 +38,14 @@ const filters = { search: "", teamIds: [], date: "", phase: "", status: "" };
 let division = initialDivision(window.location.search, preferenceStorage());
 let divisionRevision = 0;
 const snapshots = new Map();
+const calendarViews = new Map();
 const reports = new Map();
 const playerReports = new Map();
 const matchViews = new Map();
 const checkReportBatch = createReportQueue();
 let reportTimer;
+let calendarCheckedAt = null;
+let calendarNotice = "";
 let data = null;
 let error = null;
 let busy = false;
@@ -84,7 +88,9 @@ function updateDivisionHeader() {
 }
 
 function restoreDivisionData() {
-  data = snapshots.get(division) || null;
+  const lastRead = calendarViews.get(division);
+  data = lastRead?.data || snapshots.get(division) || null;
+  calendarCheckedAt = lastRead?.checkedAt ?? null;
   if (!data) {
     try {
       const cached = preferenceStorage()?.getItem(cacheKey(division));
@@ -97,7 +103,8 @@ function restoreDivisionData() {
 
 function changeDivision(id, { fromNavigation = false } = {}) {
   if (id === division || !Object.hasOwn(DIVISIONS, id)) return;
-  if (data) snapshots.set(division, data);
+  calendarCheckedAt = null;
+  calendarNotice = "";
   division = id;
   divisionRevision++; // A late response from the previous division must not redraw this one.
   busy = false;
@@ -148,6 +155,7 @@ const matchView = (match) => {
 const resultView = (match, now) => reportView(match, currentReport(match), now);
 const resultState = (match, now) => resultView(match, now).state;
 const score = (match) => {
+  if (match.cancelled) return STATES.cancelled;
   const value = resultView(match).score;
   return `${shown(value.a)} <span aria-hidden="true">–</span> ${shown(value.b)}`;
 };
@@ -181,10 +189,12 @@ function renderFreshness() {
   document.querySelector("#stale-warning").hidden = !publicationIsStale(data);
   const restoreFocus = document.activeElement?.id === "refresh";
   const restoreInfo = freshness.querySelector(".refresh-info")?.open;
-  freshness.innerHTML = `<div class="freshness-meta"><p class="download">${data ? `Download: <strong>${escape(timestamp(data.fetchedAt))}</strong> <span class="age">· ${ageText()}</span>` : "Nessun download disponibile"}</p>
-    <p class="source-updated">Foglio: <strong>${escape(timestamp(data?.sourceReportedAt))}</strong>${data?.sourceMode === "frozen" ? " · Copia locale" : ""}</p>
-    <details class="refresh-info" ${restoreInfo ? "open" : ""}><summary>Come funziona Aggiorna</summary><p>Aggiorna legge l’ultima copia pubblicata del calendario e forza il controllo dei fogli di gara degli incontri già iniziati oggi e di quelli previsti nelle prossime 2 ore, senza un risultato finale nel calendario. Il controllo comprende tutta la divisione scelta, anche le partite nascoste dai filtri. Finché questa scheda è visibile, i punteggi si aggiornano automaticamente ogni 5 minuti, ogni 60 secondi nel dettaglio della partita. Se il report indica la fine, il risultato appare come da confermare e il controllo automatico si ferma. GitHub importa il calendario ogni 15 minuti nel weekend e ogni ora nei feriali, con possibili ritardi; i suoi risultati finali hanno sempre precedenza. Roster e statistiche vengono letti all’apertura del dettaglio. Aggiorna ricontrolla la partita aperta anche fuori dalla finestra indicata.</p></details>
-    ${error ? `<p role="alert" class="error">Aggiornamento non riuscito. ${data ? `Dati conservati (${ageText()}).` : "Riprova con Aggiorna."} <span class="muted">${escape(error)}</span></p>` : ""}</div>
+  freshness.innerHTML = `<div class="freshness-meta"><p class="download">${data ? `Copia completa: <strong>${escape(timestamp(data.fetchedAt))}</strong> <span class="age">· ${ageText()}</span>` : "Nessun download disponibile"}</p>
+    <p class="source-updated">Data del foglio nella copia: <strong>${escape(timestamp(data?.sourceReportedAt))}</strong>${data?.sourceMode === "frozen" ? " · Copia locale" : ""}</p>
+    ${calendarCheckedAt ? `<p>Ultima lettura di Partite: <strong>${escape(timestamp(calendarCheckedAt))}</strong></p>` : ""}
+    ${calendarNotice ? `<p role="status">${escape(calendarNotice)} <a href="${escape(DIVISIONS[division].sourceUrl)}" target="_blank" rel="noopener noreferrer">Apri il foglio originale</a></p>` : ""}
+    <details class="refresh-info" ${restoreInfo ? "open" : ""}><summary>Come funziona Aggiorna</summary><p>All’apertura, ogni 5 minuti con la pagina visibile e quando premi Aggiorna, il sito legge i risultati ufficiali e le squadre dal foglio Partite. Controlla anche i referti delle partite in corso o appena concluse senza risultato ufficiale, indipendentemente dai filtri. Nel dettaglio partita il controllo del referto avviene ogni minuto. La copia completa comprende anche i nuovi incontri, le classifiche e le statistiche. GitHub ne pianifica la pubblicazione ogni 15 minuti nel weekend e ogni ora nei feriali durante il campionato. L’orario effettivo dipende dall’esecuzione del workflow.</p></details>
+    ${error ? `<p role="alert" class="error">Copia completa di Pages non disponibile. ${data ? `Ultima copia di ${ageText()}.` : "Riprova con Aggiorna."} <span class="muted">${escape(error)}</span></p>` : ""}</div>
     <button id="refresh" ${busy ? "disabled" : ""}>${busy ? "Aggiornamento…" : "Aggiorna"}</button>`;
   document.querySelector("#refresh").addEventListener("click", () =>
     refresh({ manual: true }),
@@ -209,8 +219,9 @@ function resultMarkup(match, detail = false) {
   const entry = currentReport(match);
   const checked = ["live", "provisional", "report-stale"].includes(state) && entry?.checkedAt
     ? `<small class="report-checked">Report: ${escape(timestamp(entry.checkedAt))}</small>` : "";
-  const value = `<strong class="${detail ? "big-score" : "score"}">${score(match)}</strong>`;
+  const value = `<strong class="${detail ? "big-score" : "score"}${match.cancelled ? " cancelled-score" : ""}">${score(match)}</strong>`;
   const result = detail ? value : `<a class="score-link" href="#/match/${encodeURIComponent(match.id)}">${value}<span class="visually-hidden"> · Apri i dettagli di ${escape(matchLabel(match))}</span></a>`;
+  if (match.cancelled) return result;
   return `${result}<span class="status ${state}">${match.forfeit ? "Risultato a tavolino" : STATES[state]}</span>${checked}`;
 }
 
@@ -222,7 +233,7 @@ function bracketScoreMarkup(match) {
     return `<${tag} class="bracket-score-${side}">${shown(points)}</${tag}>`;
   };
   const pending = a === null && b === null;
-  const text = pending ? "–" : `${scorePart("a", a)} – ${scorePart("b", b)}`;
+  const text = match.cancelled ? "Annullata" : pending ? "–" : `${scorePart("a", a)} – ${scorePart("b", b)}`;
   const qualifier = { live: "LIVE", provisional: "Provv.", "report-stale": "Ultimo parziale" }[state];
   const status = match.forfeit ? "Risultato a tavolino" : STATES[state];
   const nameAndScore = (side, points) => {
@@ -235,6 +246,7 @@ function bracketScoreMarkup(match) {
 }
 
 function reportMarkup(match) {
+  if (match.cancelled) return '<p class="muted">Il calendario ufficiale indica che la partita è annullata.</p>';
   if (!match.reportUrl) return match.forfeit
     ? '<p class="muted">Partita assegnata a tavolino. La fonte pubblica il risultato senza un foglio di gara.</p>'
     : '<p class="muted">Report non ancora disponibile nella fonte.</p>';
@@ -346,6 +358,8 @@ async function refreshReports({ manual = false } = {}) {
       const key = `${requestedDivision}:${match.id}`;
       const options = { aliases, interval };
       const context = reportContext(match, requestedData.teams, aliases);
+      const current = data?.matches.find((candidate) => candidate.id === match.id);
+      if (!current || current.cancelled || context !== reportContext(current, data.teams, reportAliases())) return false;
       const [scoreEntry, playerEntry] = await Promise.all([
         scores ? requestReport(match, requestedData.teams, currentReport(match), options) : null,
         players ? requestMatchPlayers(match, requestedData.teams, currentPlayers(match), options) : null,
@@ -594,6 +608,7 @@ function matchRosterTable(players, caption) {
 
 function matchPlayersMarkup(match) {
   const heading = "<h2>Giocatori della partita</h2>";
+  if (match.cancelled) return `${heading}${empty("Partita annullata.")}`;
   if (match.forfeit) return `${heading}${empty("Partita assegnata a tavolino, senza statistiche individuali.")}`;
   if (!match.reportUrl) return `${heading}${empty("Roster e statistiche non ancora collegati nella fonte.")}`;
   const entry = currentPlayers(match);
@@ -633,6 +648,7 @@ function teamPage(id) {
     <section><h2>Statistiche dei gironi</h2><div class="stats-line">${entries.map((entry) => `<div><strong>${escape(entry.name)}</strong><p>${shown(entry.points)} punti · ${shown(entry.goalsFor)} mete fatte · ${shown(entry.goalsAgainst)} subite</p></div>`).join("")}</div><p class="muted">Ordine e valori dal foglio; i punti iniziali a zero non determinano qualificazioni.</p></section>
     <section><h2>In programma</h2>${group(["scheduled", "unresolved"])}</section>
     <section><h2>Parziali dal report</h2>${group(["live", "provisional", "report-stale"])}</section>
+    ${matches.some((match) => match.cancelled) ? `<section><h2>Partite annullate</h2>${group(["cancelled"])}</section>` : ""}
     <section><h2>Risultati registrati</h2>${group(["complete"])}</section>
     <section><h2>Risultati incompleti o non disponibili</h2>${group(["partial", "unreported"])}</section>
     <section class="players-section"><h2>Giocatori e statistiche</h2><p class="muted">Elenco della squadra pubblicato nella fonte, non roster verificato di una partita.</p>${playersTable(data.players.filter((player) => player.teamId === id))}<p>Questi sono totali stagionali. Apri una partita per consultare le presenze e le statistiche disponibili nel suo report.</p></section>`;
@@ -669,8 +685,10 @@ function matchPage(id) {
   const view = matchView(match);
   const evaluations = data.sotg.filter((evaluation) => evaluation.matchId === id
     && [...evaluation.categories, evaluation.total, evaluation.comment].some((value) => value !== null));
+  const spiritWarnings = [...new Set((data.sourceWarnings || []).filter((warning) => warning.matchId === id).map((warning) => warning.message))];
   const spirit = `<h2>Spirit of the Game <span class="muted">SOTG</span></h2><p>Valutazione dello spirito sportivo: ogni squadra valuta l’avversaria in cinque categorie.</p>
-    ${!forms.length ? '<p class="muted">Link di valutazione non disponibile nella fonte.</p>' : ""}
+    ${spiritWarnings.map((message) => `<p class="form-warning">${escape(message)}</p>`).join("")}
+    ${!forms.length && !spiritWarnings.length ? '<p class="muted">Link di valutazione non disponibile nella fonte.</p>' : ""}
     ${evaluations.length ? evaluations.map((evaluation) => `<article class="evaluation"><h3>${teamLink(evaluation.evaluatingTeamId)} valuta ${teamLink(evaluation.evaluatedTeamId)}</h3><dl>${data.sotgCategories.map((category, index) => `<div><dt>${escape(category)}</dt><dd>${shown(evaluation.categories[index])}</dd></div>`).join("")}<div class="total"><dt>Totale</dt><dd>${shown(evaluation.total)}</dd></div></dl><p>${evaluation.comment === null ? "Commento non pubblicato" : escape(evaluation.comment)}</p></article>`).join("") : empty("Valutazioni non ancora pubblicate")}
     ${evaluations.length === 1 ? '<p class="muted">L’altra valutazione non è ancora pubblicata.</p>' : ""}`;
   content.innerHTML = `<a class="back" href="#/">← Torna alle partite</a>
@@ -768,6 +786,24 @@ function locationHash() {
   }
 }
 
+function displayCalendar(next) {
+  if (data === next || (data?.fetchedAt === next.fetchedAt && JSON.stringify(data) === JSON.stringify(next))) return;
+  data = next;
+  // Capture focus after the request: the user may have typed or navigated meanwhile.
+  const active = document.activeElement;
+  const focusedId = active?.id;
+  const selection = active instanceof HTMLInputElement && active.selectionStart !== null
+    ? [active.selectionStart, active.selectionEnd, active.selectionDirection]
+    : null;
+  render();
+  const focus = document.getElementById(focusedId);
+  if (focus) {
+    focus.focus({ preventScroll: true });
+    if (selection !== null && focus instanceof HTMLInputElement)
+      focus.setSelectionRange(...selection);
+  }
+}
+
 async function refresh({ manual = false } = {}) {
   if (busy) return;
   const revision = divisionRevision;
@@ -776,51 +812,50 @@ async function refresh({ manual = false } = {}) {
   busy = true;
   if (manual) {
     refreshStatus.hidden = false;
-    refreshStatus.textContent = "Verifica della copia pubblicata…";
+    refreshStatus.textContent = "Verifica di Pages e del foglio Partite…";
   }
   renderFreshness();
   if (!data) render();
-  const result = await requestData(
+  const published = await requestData(
     `${import.meta.env.BASE_URL}${DIVISIONS[requestedDivision].dataFile}`,
-    data,
-    fetch,
-    requestedDivision,
+    snapshots.get(requestedDivision) || data, fetch, requestedDivision,
   );
   if (revision !== divisionRevision) return;
-  // Avoid replacing focused links/controls on a poll of an unchanged deployment.
-  const changed =
-    result.data && JSON.stringify(result.data) !== JSON.stringify(data);
-  data = result.data;
-  error = result.error;
-  if (manual) {
-    const checkedAt = new Intl.DateTimeFormat("it-IT", {
-      timeZone: "Europe/Rome",
-      timeStyle: "medium",
-    }).format(new Date());
-    refreshStatus.textContent = error
-      ? `Verifica non riuscita alle ${checkedAt}. ${data ? "Ultimi dati validi conservati." : "Riprova con Aggiorna."}`
-      : `Verificato alle ${checkedAt}: ${changed ? "nuova copia caricata." : "nessuna nuova copia pubblicata."}`;
-  }
-  if (changed) {
-    // Capture focus after the request: the user may have typed or navigated meanwhile.
-    const active = document.activeElement;
-    const focusedId = active?.id;
-    const selection = active instanceof HTMLInputElement && active.selectionStart !== null
-      ? [active.selectionStart, active.selectionEnd, active.selectionDirection]
-      : null;
-    try {
-      localStorage.setItem(cacheKey(requestedDivision), JSON.stringify(data));
-    } catch {
-      /* In-memory data still works when storage is denied/full. */
+  error = published.error;
+  const base = published.data;
+  if (base) {
+    const samePublication = data && base.fetchedAt === data.fetchedAt && base.workbookSha256 === data.workbookSha256;
+    if (!published.error && snapshots.get(requestedDivision)?.fetchedAt !== base.fetchedAt) {
+      snapshots.set(requestedDivision, base);
+      try { localStorage.setItem(cacheKey(requestedDivision), JSON.stringify(base)); } catch { /* Storage is optional. */ }
     }
+    if (!data) displayCalendar(base);
+    const source = await requestCalendar(samePublication ? data : base);
+    if (revision !== divisionRevision) return;
+    if (source.checkedAt && !source.error) {
+      calendarCheckedAt = source.checkedAt;
+      calendarViews.set(requestedDivision, { data: source.data, checkedAt: source.checkedAt });
+    }
+    calendarNotice = source.requiresImport
+      ? "Il foglio contiene modifiche che richiedono una nuova importazione completa."
+      : source.error ? "Lettura di Partite non riuscita. Restano visibili gli ultimi dati disponibili." : "";
+    // A failed direct read must not roll back results already seen from the sheet.
+    if (!source.error || !calendarCheckedAt || Date.parse(base.fetchedAt) >= calendarCheckedAt) {
+      displayCalendar(source.data);
+      if (source.error && !samePublication) {
+        calendarViews.delete(requestedDivision);
+        calendarCheckedAt = null;
+      }
+    }
+    if (manual) {
+      refreshStatus.textContent = source.error ? calendarNotice
+        : source.checkedAt ? `Foglio Partite verificato alle ${new Date(source.checkedAt).toLocaleTimeString("it-IT", { timeZone: "Europe/Rome" })}. ${source.changed ? `Partite aggiornate: ${source.changed}.` : "Risultati visualizzati allineati per gli incontri verificati."}`
+        : "Verificata la copia locale.";
+    }
+  } else {
     render();
-    const focus = document.getElementById(focusedId);
-    if (focus) {
-      focus.focus({ preventScroll: true });
-      if (selection !== null && focus instanceof HTMLInputElement)
-        focus.setSelectionRange(...selection);
-    }
-  } else if (!data) render();
+    if (manual) refreshStatus.textContent = "Calendario non disponibile. Riprova con Aggiorna.";
+  }
   renderFreshness();
   const calendarMessage = refreshStatus.textContent;
   const reportResult = await refreshReports({ manual });
@@ -889,7 +924,7 @@ document.addEventListener("visibilitychange", () => {
 });
 setInterval(() => {
   if (!document.hidden) refresh();
-}, 90000);
+}, 5 * 60000);
 setInterval(() => {
   if (!document.hidden) { renderFreshness(); updateReportDisplay(); }
 }, REPORT_INTERVAL);
